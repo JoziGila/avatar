@@ -83,7 +83,7 @@ function initSky() {
       vec3 rdA = rd; rdA.y = max(rd.y, 0.004);
       vec3 L = atmosphere(normalize(rdA), uSunDir, uSunI, uMoonDir, uMoonI, uAlt, tv);
       // airglow / starlight floor so night is deep blue, never pure black
-      vec3 night = vec3(0.0010, 0.0017, 0.0036) * uNightGlow * (1.0 + 1.5 * pow(1.0 - max(rd.y, 0.0), 3.0));
+      vec3 night = vec3(0.0022, 0.0036, 0.0075) * uNightGlow * (1.0 + 1.5 * pow(1.0 - max(rd.y, 0.0), 3.0));
       L += night;
       if (rd.y < 0.0){
         // below horizon: lit cloud-sea carpet fading in under the haze
@@ -208,7 +208,7 @@ function updateSkyState() {
   // key light: sun until it sets, then the moon (continuous via cross-fade of direction/intensity)
   const sunW = horizonCut * smoothstep(-0.04, 0.05, SKY.sunElev);
   const moonW = (1 - smoothstep(-0.07, 0.0, SKY.sunElev)) * smoothstep(0.02, 0.2, SKY.moonElev);
-  const sunL = sunW * 3.2, moonL = moonW * 0.11;
+  const sunL = sunW * 3.2, moonL = moonW * 0.34;   // day-for-night: moonlight strong enough to model form
   const k = sunL / Math.max(sunL + moonL, 1e-6);
   U.uKeyDir.value.copy(U.uMoonDir.value).lerp(U.uSunDir.value, k).normalize();
   U.uKeyColor.value.setRGB(_tr[0] * sunL + 0.55 * moonL, _tr[1] * sunL + 0.66 * moonL, _tr[2] * sunL + 0.95 * moonL);

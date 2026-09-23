@@ -234,14 +234,14 @@ function initCloth(fig) {
     const radiusAt = (th) => { const f = ((th / TAU) % 1 + 1) % 1 * nR; const i = Math.floor(f) % nR, j = (i + 1) % nR, u = f - Math.floor(f); return lerp(radii[i], radii[j], u); };
     // column angles: θ from +Z (front) toward +X (figure's left); cuts after these columns (slits)
     const angles = []; for (let c = 0; c < COLS; c++) angles.push((c / COLS) * TAU);
-    const cut = new Set([Math.round(COLS * 0.25) - 1, Math.round(COLS * 0.5) - 1, Math.round(COLS * 0.75) - 1, COLS - 1]);
+    const cut = new Set([Math.round(COLS * 0.25) - 1, Math.round(COLS * 0.75) - 1]);   // side slits: a front and a back panel
     const localPos = (c, r) => {
       const th = angles[c]; const rr = radiusAt(th) * 1.02 + (r / (ROWS - 1)) * 0.1 + (c === 0 ? 0.008 : 0);
       return V3(Math.sin(th) * rr, -r * step, Math.cos(th) * rr);
     };
-    const pc = gridPiece(W, COLS, ROWS, (c, r) => localPos(c, r).applyQuaternion(yawQ).add(P), { k: 1, shear: 0.5, bend: 0.18, area: 0.003, drag: 1.0, cut, wrapCols: true, mask: 1 });
+    const pc = gridPiece(W, COLS, ROWS, (c, r) => localPos(c, r).applyQuaternion(yawQ).add(P), { k: 1, shear: 0.5, bend: 0.2, area: 0.003, drag: 0.72, cut, wrapCols: true, mask: 1 });
     pc.kind = 'skirt'; pc.localPos = localPos; pc.anchor = 'skirt'; pc.len = len;
-    const mat = clothMaterial({ front: [0.03, 0.036, 0.044], back: [0.18, 0.16, 0.13], rough: 0.92, sheen: 1.0, fray: 1.0, key: 'skirt' });
+    const mat = clothMaterial({ front: [0.03, 0.036, 0.044], back: [0.075, 0.068, 0.06], rough: 0.92, sheen: 1.0, fray: 1.0, key: 'skirt' });
     const geo = pieceGeometry(pc, (c, r) => [c / COLS, r / (ROWS - 1)]);
     const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     CLOTH.group.add(mesh); CLOTH.meshes.push(mesh); pc.mesh = mesh; CLOTH.pieces.push(pc);

@@ -911,7 +911,7 @@ function initSky() {
       vec3 rdA = rd; rdA.y = max(rd.y, 0.004);
       vec3 L = atmosphere(normalize(rdA), uSunDir, uSunI, uMoonDir, uMoonI, uAlt, tv);
       // airglow / starlight floor so night is deep blue, never pure black
-      vec3 night = vec3(0.0010, 0.0017, 0.0036) * uNightGlow * (1.0 + 1.5 * pow(1.0 - max(rd.y, 0.0), 3.0));
+      vec3 night = vec3(0.0022, 0.0036, 0.0075) * uNightGlow * (1.0 + 1.5 * pow(1.0 - max(rd.y, 0.0), 3.0));
       L += night;
       if (rd.y < 0.0){
         // below horizon: lit cloud-sea carpet fading in under the haze
@@ -1036,7 +1036,7 @@ function updateSkyState() {
   // key light: sun until it sets, then the moon (continuous via cross-fade of direction/intensity)
   const sunW = horizonCut * smoothstep(-0.04, 0.05, SKY.sunElev);
   const moonW = (1 - smoothstep(-0.07, 0.0, SKY.sunElev)) * smoothstep(0.02, 0.2, SKY.moonElev);
-  const sunL = sunW * 3.2, moonL = moonW * 0.11;
+  const sunL = sunW * 3.2, moonL = moonW * 0.34;   // day-for-night: moonlight strong enough to model form
   const k = sunL / Math.max(sunL + moonL, 1e-6);
   U.uKeyDir.value.copy(U.uMoonDir.value).lerp(U.uSunDir.value, k).normalize();
   U.uKeyColor.value.setRGB(_tr[0] * sunL + 0.55 * moonL, _tr[1] * sunL + 0.66 * moonL, _tr[2] * sunL + 0.95 * moonL);
@@ -1344,7 +1344,7 @@ function platformHeight(x, z) {
   return h;
 }
 // cliff profile beyond the platform edge: [radial offset from edge, height] control points
-const CLIFF = [[-0.35, 0], [0, -0.06], [0.3, -0.36], [0.8, -1.5], [1.8, -4.4], [3.8, -9], [7.5, -16], [13, -25], [22, -38], [36, -56], [60, -84], [100, -120], [170, -175], [300, -260]];
+const CLIFF = [[-0.35, 0], [0, -0.06], [0.3, -0.36], [0.8, -1.5], [1.8, -4.4], [3.8, -10], [7.5, -20], [13, -34], [22, -55], [36, -80], [60, -114], [100, -158], [170, -215], [300, -290]];
 function cliffAt(d) {
   if (d <= CLIFF[0][0]) return 0;
   for (let i = 1; i < CLIFF.length; i++) {
@@ -1580,7 +1580,10 @@ function buildTerrain() {
         const r = ((i + 1) / NP) * (R0 - 0.35);
         x = c * r; z = s * r; y = platformHeight(x, z);
       } else {
-        const d = cliffD[i - NP]; const r = R0 + d;
+        const d = cliffD[i - NP];
+        // five great spurs with gullies between: the peak reads as rock, not as a lathe-turned cone
+        const spur = Math.pow(0.5 + 0.5 * Math.cos(th * 5 + 1.3 + 0.9 * Noise.n2(c * 1.5, s * 1.5)), 2.5) * 1.15 + 0.4 * Noise.n2(c * 3.1 + 7, s * 3.1 - 2) + 0.18 * Noise.n2(c * 9 + 1, s * 9 - 3);
+        const r = R0 + d * (1 + (spur - 0.38) * smoothstep(3, 24, d));
         x = c * r; z = s * r;
         y = cliffAt(d) + (d < 0.1 ? platformHeight(x, z) * smoothstep(0.1, -0.35, d) : 0);
         // rocky displacement grows with depth below the lip; strata ledges and buttress ridges
@@ -3441,14 +3444,14 @@ function initCloth(fig) {
     const radiusAt = (th) => { const f = ((th / TAU) % 1 + 1) % 1 * nR; const i = Math.floor(f) % nR, j = (i + 1) % nR, u = f - Math.floor(f); return lerp(radii[i], radii[j], u); };
     // column angles: θ from +Z (front) toward +X (figure's left); cuts after these columns (slits)
     const angles = []; for (let c = 0; c < COLS; c++) angles.push((c / COLS) * TAU);
-    const cut = new Set([Math.round(COLS * 0.25) - 1, Math.round(COLS * 0.5) - 1, Math.round(COLS * 0.75) - 1, COLS - 1]);
+    const cut = new Set([Math.round(COLS * 0.25) - 1, Math.round(COLS * 0.75) - 1]);   // side slits: a front and a back panel
     const localPos = (c, r) => {
       const th = angles[c]; const rr = radiusAt(th) * 1.02 + (r / (ROWS - 1)) * 0.1 + (c === 0 ? 0.008 : 0);
       return V3(Math.sin(th) * rr, -r * step, Math.cos(th) * rr);
     };
-    const pc = gridPiece(W, COLS, ROWS, (c, r) => localPos(c, r).applyQuaternion(yawQ).add(P), { k: 1, shear: 0.5, bend: 0.18, area: 0.003, drag: 1.0, cut, wrapCols: true, mask: 1 });
+    const pc = gridPiece(W, COLS, ROWS, (c, r) => localPos(c, r).applyQuaternion(yawQ).add(P), { k: 1, shear: 0.5, bend: 0.2, area: 0.003, drag: 0.72, cut, wrapCols: true, mask: 1 });
     pc.kind = 'skirt'; pc.localPos = localPos; pc.anchor = 'skirt'; pc.len = len;
-    const mat = clothMaterial({ front: [0.03, 0.036, 0.044], back: [0.18, 0.16, 0.13], rough: 0.92, sheen: 1.0, fray: 1.0, key: 'skirt' });
+    const mat = clothMaterial({ front: [0.03, 0.036, 0.044], back: [0.075, 0.068, 0.06], rough: 0.92, sheen: 1.0, fray: 1.0, key: 'skirt' });
     const geo = pieceGeometry(pc, (c, r) => [c / COLS, r / (ROWS - 1)]);
     const mesh = new THREE.Mesh(geo, mat); mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     CLOTH.group.add(mesh); CLOTH.meshes.push(mesh); pc.mesh = mesh; CLOTH.pieces.push(pc);
@@ -4337,6 +4340,47 @@ const _c1 = new THREE.Color();
 function bbColor(T, out = _c1) { const c = blackbodyRGB(T); return out.setRGB(c[0], c[1], c[2]); }
 function rate(perSecond, dt) { const x = perSecond * dt; const n = Math.floor(x); return n + (Math.random() < x - n ? 1 : 0); }
 function randInSphere(r, out = V3()) { do { out.set(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1); } while (out.lengthSq() > 1); return out.multiplyScalar(r); }
+
+// ---- 12b-breath.js ----
+// §12b BREATH — the stillness of Act I and the closing kneel: breath condensing in the cold air on
+// every exhale, and the press of the palms that makes the pebbles tremble and the pool shiver.
+const BREATH = { t: { press: 6.5 }, prev: 0 };
+function mouthPoint(out) {
+  const h = FIG.p.head, n = FIG.p.upperChest;
+  // a little in front of and below the head centre, along the body's facing
+  return out.copy(h).addScaledVector(FIG.fwd, 0.1).add(_v2.set(0, -0.06, 0)).lerp(n, 0.05);
+}
+function pressBurst(ctx) {
+  if (ctx.skipped) return;
+  const c = V3(FIG.p.hips.x, 0, FIG.p.hips.z); c.y = groundHeight(c.x, c.z);
+  // pebbles hop in place — a tremor, not an explosion
+  PS.debris.emit({ count: 140, pos: V3(c.x, c.y + 0.02, c.z), radius: 1.6, vel: V3(0, 0.9, 0), spread: 0.35, life: [0.9, 1.6], size: [0.008, 0.02], kind: 0 });
+  PS.smoke.emit({ count: 26, pos: V3(c.x, c.y + 0.04, c.z), radius: 0.3, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.05, 0), spread: 1.6, life: [1.6, 2.8], size: [0.1, 0.2], kind: 1, param: 0.2 });
+  BREATH.ring = TL.T;
+  // the pool answers with one concentric shiver
+  const P = LAYOUT.pool; for (let k = 0; k < 6; k++) poolDrop(P.x + Math.cos(k) * 0.4, P.z + Math.sin(k) * 0.3, 0.2, 0.0025);
+  sfx('press', { gain: 0.6 });
+}
+fxModule({
+  init() { at(BREATH.t.press, (ctx) => pressBurst(ctx), 'press'); },
+  reset() { BREATH.ring = -9; BREATH.prev = 0; },
+  update(T, dt) {
+    if (TL.mode !== 'cinematic') return;
+    // condensation on the out-breath while the air is cold and still (Act I and the final kneel)
+    const b = CHAR.canon.breath, db = dt > 0 ? (b - BREATH.prev) / dt : 0; BREATH.prev = b;
+    const still = (T < 7.2 ? 1 : 0) + smoothstep(67.8, 68.8, T);
+    if (dt > 0 && still > 0 && db < -0.15) {
+      const m = mouthPoint(_v1);
+      PS.smoke.emit({ count: 26 * dt * Math.min(1, -db), scale: 1, pos: m, radius: 0.015, vel: _v3.copy(FIG.fwd).multiplyScalar(0.28).add(_v4.set(0, -0.05, 0)), spread: 0.08, life: [0.9, 1.6], size: [0.025, 0.05], kind: 3, param: 0 });
+    }
+    // the press: a low pressure ring rolls out across the stone
+    const st = T - BREATH.ring;
+    if (st > 0 && st < 0.9) {
+      const R = st * 6, c = FIG.p.hips;
+      distortSprite(_v1.set(c.x, groundHeight(c.x, c.z) + 0.12, c.z), R + 0.4, 0.03 * (1 - st / 0.9), 1, R / (R + 0.4), 0.1);
+    }
+  },
+});
 
 // ---- 13-water.js ----
 // §13 WATER — the pool (ripple heightfield, planar reflection), the living stream rendered as a
@@ -5903,7 +5947,7 @@ class ScenePass extends Pass {
 // Auto-exposure: a centre-weighted log-average of scene luminance is metered into a small
 // mip-mapped target, adapted over time (faster toward dark, like an iris) in a 1×1 ping-pong
 // target, and applied before bloom so thresholds stay meaningful when facing the low sun.
-const EXPO = { meterRT: null, a: null, b: null, dt: 1 / 60, key: 0.2, amount: 0.8, min: 0.22, max: 3.2, value: 1 };
+const EXPO = { meterRT: null, a: null, b: null, dt: 1 / 60, key: 0.2, amount: 0.8, min: 0.22, max: 4.5, value: 1 };
 const meterMat = fsMat(/* glsl */ `
   varying vec2 vUv; uniform sampler2D tColor; uniform vec2 uTexel;
   void main(){
@@ -6944,8 +6988,8 @@ const GRADES = {
   water:   [1.0, -0.12, -0.02, 0.95, 1.07, 0.5, 2.0, 0.38, 0.05, 0.25, 1.0],
   earth:   [1.0, 0.18, 0.03, 0.82, 1.1, 0.4, 2.4, 0.4, 0.06, 0.15, 1.0],
   fire:    [0.85, 0.2, 0.02, 1.05, 1.12, 0.8, 1.6, 0.46, 0.06, 0.35, 0.5],
-  air:     [0.95, -0.12, 0.0, 0.82, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25, 0.7],
-  unity:   [0.95, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.3, 0.72],
+  air:     [1.0, -0.12, 0.0, 0.82, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25, 0.82],
+  unity:   [1.0, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.3, 0.85],
 };
 function applyTracks(T) {
   SKY.sunElev = keysAt(SUN_KEYS, T) * DEG;

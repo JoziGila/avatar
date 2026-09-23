@@ -52,7 +52,7 @@ function platformHeight(x, z) {
   return h;
 }
 // cliff profile beyond the platform edge: [radial offset from edge, height] control points
-const CLIFF = [[-0.35, 0], [0, -0.06], [0.3, -0.36], [0.8, -1.5], [1.8, -4.4], [3.8, -9], [7.5, -16], [13, -25], [22, -38], [36, -56], [60, -84], [100, -120], [170, -175], [300, -260]];
+const CLIFF = [[-0.35, 0], [0, -0.06], [0.3, -0.36], [0.8, -1.5], [1.8, -4.4], [3.8, -10], [7.5, -20], [13, -34], [22, -55], [36, -80], [60, -114], [100, -158], [170, -215], [300, -290]];
 function cliffAt(d) {
   if (d <= CLIFF[0][0]) return 0;
   for (let i = 1; i < CLIFF.length; i++) {
@@ -288,7 +288,10 @@ function buildTerrain() {
         const r = ((i + 1) / NP) * (R0 - 0.35);
         x = c * r; z = s * r; y = platformHeight(x, z);
       } else {
-        const d = cliffD[i - NP]; const r = R0 + d;
+        const d = cliffD[i - NP];
+        // five great spurs with gullies between: the peak reads as rock, not as a lathe-turned cone
+        const spur = Math.pow(0.5 + 0.5 * Math.cos(th * 5 + 1.3 + 0.9 * Noise.n2(c * 1.5, s * 1.5)), 2.5) * 1.15 + 0.4 * Noise.n2(c * 3.1 + 7, s * 3.1 - 2) + 0.18 * Noise.n2(c * 9 + 1, s * 9 - 3);
+        const r = R0 + d * (1 + (spur - 0.38) * smoothstep(3, 24, d));
         x = c * r; z = s * r;
         y = cliffAt(d) + (d < 0.1 ? platformHeight(x, z) * smoothstep(0.1, -0.35, d) : 0);
         // rocky displacement grows with depth below the lip; strata ledges and buttress ridges

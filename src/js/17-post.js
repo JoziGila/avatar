@@ -98,7 +98,7 @@ class ScenePass extends Pass {
 // Auto-exposure: a centre-weighted log-average of scene luminance is metered into a small
 // mip-mapped target, adapted over time (faster toward dark, like an iris) in a 1×1 ping-pong
 // target, and applied before bloom so thresholds stay meaningful when facing the low sun.
-const EXPO = { meterRT: null, a: null, b: null, dt: 1 / 60, key: 0.2, amount: 0.8, min: 0.22, max: 3.2, value: 1 };
+const EXPO = { meterRT: null, a: null, b: null, dt: 1 / 60, key: 0.2, amount: 0.8, min: 0.22, max: 4.5, value: 1 };
 const meterMat = fsMat(/* glsl */ `
   varying vec2 vUv; uniform sampler2D tColor; uniform vec2 uTexel;
   void main(){
