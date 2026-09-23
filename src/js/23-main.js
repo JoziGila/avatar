@@ -113,7 +113,8 @@ function present(dtReal) {
   flushLights(); syncParticleLights();
   if (typeof updateAudio === 'function') updateAudio(dtReal);
   if (typeof updateUI === 'function') updateUI();
-  renderFrame();
+  if (typeof presentFX === 'function') presentFX(dtReal);
+  renderFrame(dtReal);
 }
 const FREE_T = 6.9;
 const ORBIT = { active: false, update() {} };

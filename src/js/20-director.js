@@ -43,25 +43,26 @@ function buildShots() {
   });
   shot(8.25, 10.4, 'column rises', (u) => {
     const c = figC(); const d = V3(pool.x - c.x, 0, pool.z - c.z); const len = d.length(); d.normalize(); const side = V3(d.z, 0, -d.x);
-    const mid = c.clone().addScaledVector(d, len * 0.45);
-    const p = mid.clone().addScaledVector(side, -4.4).setY(0.9).addScaledVector(d, -0.6 * u);
-    return { p, t: mid.clone().setY(1.2 + 0.4 * u), fov: 40, aperture: 0.03 };
+    const mid = c.clone().addScaledVector(d, len * 0.52);
+    const p = mid.clone().addScaledVector(side, 5.6).setY(0.75 + 0.2 * u).addScaledVector(d, -0.5 * u);
+    return { p, t: mid.clone().setY(1.25 + 0.35 * ease(u)), fov: 42, aperture: 0.02 };
   });
   shot(10.4, 13.45, 'orbit ribbon', (u) => {
     const c = figC();
     return { p: around(c, lerp(150, 330, ease(u, 'inOutSine')), 3.3, 1.35 + 0.25 * Math.sin(u * Math.PI)), t: V3(c.x, 1.15, c.z), fov: 36, aperture: 0.06, focusOn: A.chest };
   });
   const p1 = LOC.P1;
-  shot(13.45, 14.12, 'whip at camera', (u) => {
+  shot(13.45, 14.26, 'whip at camera', (u) => {
     const c = figC(); const d = V3(p1.x - c.x, 0, p1.z - c.z).normalize(); const side = V3(d.z, 0, -d.x);
-    const p = c.clone().addScaledVector(d, 3.2).addScaledVector(side, 0.35).setY(1.25);
+    const p = c.clone().addScaledVector(d, 3.4).addScaledVector(side, 1.15).setY(1.3);
     const snap = smoothstep(0.55, 1.0, u);
-    return { p, t: V3(c.x, 1.25, c.z), fov: lerp(42, 24, Ease.outExpo(snap)), aperture: 0.05, focusOn: A.hands };
+    const tip = c.clone().addScaledVector(d, 2.3).setY(1.3);
+    return { p, t: V3(c.x, 1.25, c.z), fov: lerp(42, 32, Ease.outExpo(snap)), aperture: 0.03, focusOn: A.hands.clone().lerp(tip, smoothstep(0.45, 0.62, u)) };
   });
-  shot(14.12, 15.95, 'freeze close', (u) => {
+  shot(14.26, 15.95, 'freeze close', (u) => {
     const c = figC(); const d = V3(p1.x - c.x, 0, p1.z - c.z).normalize(); const side = V3(d.z, 0, -d.x);
-    const p = A.hands.clone().addScaledVector(side, -0.9).addScaledVector(d, 0.7 + 0.25 * u).setY(A.hands.y + 0.18);
-    return { p, t: A.hands.clone().addScaledVector(d, 1.0), fov: 30, aperture: 0.12, focusOn: A.hands.clone().addScaledVector(d, 0.8) };
+    const p = A.hands.clone().addScaledVector(side, -1.75).addScaledVector(d, -0.15 + 0.3 * ease(u)).setY(A.hands.y + 0.22);
+    return { p, t: A.hands.clone().addScaledVector(d, 0.5).setY(A.hands.y - 0.06), fov: 34, aperture: 0.06, focusOn: A.hands.clone().addScaledVector(d, 0.45) };
   });
   shot(15.95, 16.34, 'launch side', (u) => {
     const c = figC(); const d = V3(p1.x - c.x, 0, p1.z - c.z).normalize(); const side = V3(d.z, 0, -d.x);
@@ -71,8 +72,9 @@ function buildShots() {
   shot(16.34, 17.9, 'shatter slow-mo', (u) => {
     const pc = LOC.P1; const c = figC(); const d = V3(pc.x - c.x, 0, pc.z - c.z).normalize(); const side = V3(d.z, 0, -d.x);
     const hit = pc.clone().addScaledVector(d, -0.5).setY(1.35);
-    const p = hit.clone().addScaledVector(d, -1.9).addScaledVector(side, lerp(1.0, 0.5, u)).setY(1.5 - 0.2 * u);
-    return { p, t: hit, fov: 34, aperture: 0.1, focusOn: hit };
+    const e = ease(u, 'inOutSine');
+    const p = hit.clone().addScaledVector(d, -lerp(1.9, 3.6, e)).addScaledVector(side, lerp(1.0, 1.6, e)).setY(lerp(1.5, 0.9, e));
+    return { p, t: hit.clone().lerp(pc.clone().addScaledVector(d, -1.6).setY(0.2), e * 0.8), fov: 36, aperture: 0.06, focusOn: hit };
   });
   shot(17.9, 20.0, 'shards settle wide', (u) => {
     const c = figC();

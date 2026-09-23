@@ -9,7 +9,7 @@ const POST = {
   prevViewProj: new THREE.Matrix4(), curViewProj: new THREE.Matrix4(), cut: true,
   grade: { exposure: 1, contrast: 1.05, saturation: 1, temp: 0, tint: 0, lift: new THREE.Vector3(0, 0, 0), gain: new THREE.Vector3(1, 1, 1),
     vignette: 0.35, grain: 0.05, ca: 0, letterbox: 0, fade: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1), bloom: 0.6, bloomThreshold: 1.6, streak: 0.25,
-    focus: 4, aperture: 0, shutter: 0.5, heat: 1, drops: 0 },
+    focus: 4, aperture: 0, shutter: 0.5, heat: 1, drops: 0, autoExposure: 1 },
 };
 
 const linMat = fsMat(/* glsl */ `
@@ -88,17 +88,53 @@ class ScenePass extends Pass {
     }
     copyTex(rt.texture, POST.sceneCopyRT);
     if (typeof renderWaterSSF === 'function') renderWaterSSF(cam, rt);
+    if (typeof renderPoolReflection === 'function' && POOL.mesh) renderPoolReflection(cam);   // after the main pass: shadow maps exist
     r.setRenderTarget(rt); r.render(fxScene, cam);
     r.setRenderTarget(POST.distortRT); r.setClearColor(0x000000, 0); r.clear(true, false, false); r.setClearColor(0x000000, 1);
     if (POST.grade.heat > 0) r.render(distortScene, cam);
   }
 }
 
+// Auto-exposure: a centre-weighted log-average of scene luminance is metered into a small
+// mip-mapped target, adapted over time (faster toward dark, like an iris) in a 1×1 ping-pong
+// target, and applied before bloom so thresholds stay meaningful when facing the low sun.
+const EXPO = { meterRT: null, a: null, b: null, dt: 1 / 60, key: 0.2, amount: 0.8, min: 0.22, max: 3.2, value: 1 };
+const meterMat = fsMat(/* glsl */ `
+  varying vec2 vUv; uniform sampler2D tColor; uniform vec2 uTexel;
+  void main(){
+    float s = 0.0;
+    for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++){
+      vec3 c = texture2D(tColor, vUv + (vec2(float(i), float(j)) - 1.0) * uTexel).rgb;
+      s += log2(clamp(sp_luma(c), 1e-3, 40.0));
+    }
+    vec2 d = (vUv - vec2(0.5, 0.46)) * vec2(1.5, 1.8);
+    float w = exp(-dot(d, d) * 2.5) + 0.12;
+    gl_FragColor = vec4(s / 9.0 * w, w, 0.0, 1.0);
+  }`, { tColor: { value: null }, uTexel: { value: new THREE.Vector2(1 / 192, 1 / 192) } });
+const adaptMat = fsMat(/* glsl */ `
+  varying vec2 vUv; uniform sampler2D tMeter, tPrev; uniform float uDt, uCut, uKey, uAmount, uMin, uMax;
+  void main(){
+    vec4 m = textureLod(tMeter, vec2(0.5), 8.0);
+    float avg = exp2(m.x / max(m.y, 1e-4));
+    float target = clamp(pow(uKey / avg, uAmount), uMin, uMax);
+    float prev = max(texture2D(tPrev, vec2(0.5)).r, 1e-3);
+    float speed = target < prev ? 2.6 : 1.3;
+    float k = uCut > 0.5 ? 1.0 : 1.0 - exp(-uDt * speed);
+    gl_FragColor = vec4(exp2(mix(log2(prev), log2(target), k)), avg, 0.0, 1.0);
+  }`, { tMeter: { value: null }, tPrev: { value: null }, uDt: { value: 0.016 }, uCut: { value: 1 }, uKey: { value: 0.2 }, uAmount: { value: 0.8 }, uMin: { value: 0.2 }, uMax: { value: 3 } });
+function meterExposure() {
+  meterMat.uniforms.tColor.value = POST.sceneRT.texture; blit(meterMat, EXPO.meterRT);
+  const u = adaptMat.uniforms; u.tMeter.value = EXPO.meterRT.texture; u.tPrev.value = EXPO.a.texture;
+  u.uDt.value = EXPO.dt; u.uCut.value = POST.cut || EXPO.first ? 1 : 0; u.uKey.value = EXPO.key; u.uAmount.value = EXPO.amount; u.uMin.value = EXPO.min; u.uMax.value = EXPO.max;
+  blit(adaptMat, EXPO.b);
+  const t = EXPO.a; EXPO.a = EXPO.b; EXPO.b = t; EXPO.first = false;
+}
+
 class DistortPass extends Pass {
   constructor() {
     super();
     this.mat = fsMat(/* glsl */ `
-      varying vec2 vUv; uniform sampler2D tScene, tDist; uniform float uAmt;
+      varying vec2 vUv; uniform sampler2D tScene, tDist, tExpo; uniform float uAmt, uAuto;
       void main(){
         vec4 d = texture2D(tDist, vUv);
         vec2 off = d.xy * uAmt;
@@ -106,12 +142,17 @@ class DistortPass extends Pass {
         vec3 c;
         if (abs(sep) > 1e-5){ c.r = texture2D(tScene, vUv + off * (1.0 + sep * 4.0)).r; c.g = texture2D(tScene, vUv + off).g; c.b = texture2D(tScene, vUv + off * (1.0 - sep * 4.0)).b; }
         else c = texture2D(tScene, vUv + off).rgb;
-        gl_FragColor = vec4(c + d.w * vec3(0.9, 0.95, 1.0) * 0.0, 1.0);
-      }`, { tScene: { value: null }, tDist: { value: null }, uAmt: { value: 1 } });
+        float e = mix(1.0, texture2D(tExpo, vec2(0.5)).r, uAuto);
+        c *= e;
+        // highlight clamp: the sun disc and specular glints would otherwise flood the bloom chain
+        c *= min(1.0, 40.0 / max(sp_luma(c), 1e-4));
+        gl_FragColor = vec4(c, 1.0);
+      }`, { tScene: { value: null }, tDist: { value: null }, tExpo: { value: null }, uAmt: { value: 1 }, uAuto: { value: 1 } });
   }
   render(r, writeBuffer) {
     this.mat.uniforms.tScene.value = POST.sceneRT.texture; this.mat.uniforms.tDist.value = POST.distortRT.texture;
     this.mat.uniforms.uAmt.value = POST.grade.heat;
+    meterExposure(); this.mat.uniforms.tExpo.value = EXPO.a.texture; this.mat.uniforms.uAuto.value = POST.grade.autoExposure;
     blit(this.mat, this.renderToScreen ? null : writeBuffer);
   }
 }
@@ -197,6 +238,58 @@ class MotionBlurPass extends Pass {
     u.uPrevVP.value.copy(POST.cut ? POST.curViewProj : POST.prevViewProj);
     u.uShutter.value = POST.grade.shutter;
     blit(this.mat, this.renderToScreen ? null : writeBuffer);
+  }
+}
+
+// Energy-conserving bloom: progressive 13-tap downsample (Karis-weighted on the first level to
+// stop fireflies) and tent-filtered upsample. A few percent of the image is scattered widely, the
+// way lens and atmosphere veil light, instead of thresholded highlights stacked on top.
+class BloomPass extends Pass {
+  constructor(levels = 6) {
+    super();
+    this.down = []; this.up = []; this.levels = levels; this.strength = 0.05; this.scatter = 0.7;
+    for (let i = 0; i < levels; i++) { this.down.push(makeRT(4, 4)); this.up.push(makeRT(4, 4)); }
+    this.downMat = fsMat(/* glsl */ `
+      varying vec2 vUv; uniform sampler2D tSrc; uniform vec2 uTexel; uniform float uKaris;
+      vec3 t(vec2 o){ return texture2D(tSrc, vUv + o * uTexel).rgb; }
+      float kw(vec3 c){ return 1.0 / (1.0 + sp_luma(c)); }
+      void main(){
+        vec3 a = t(vec2(-2, 2)), b = t(vec2(0, 2)), c = t(vec2(2, 2)), d = t(vec2(-2, 0)), e = t(vec2(0)), f = t(vec2(2, 0));
+        vec3 g = t(vec2(-2, -2)), h = t(vec2(0, -2)), i = t(vec2(2, -2)), j = t(vec2(-1, 1)), k = t(vec2(1, 1)), l = t(vec2(-1, -1)), m = t(vec2(1, -1));
+        vec3 g0 = (j + k + l + m) * 0.25, g1 = (a + b + d + e) * 0.25, g2 = (b + c + e + f) * 0.25, g3 = (d + e + g + h) * 0.25, g4 = (e + f + h + i) * 0.25;
+        vec3 o;
+        if (uKaris > 0.5){
+          float w0 = kw(g0) * 0.5, w1 = kw(g1) * 0.125, w2 = kw(g2) * 0.125, w3 = kw(g3) * 0.125, w4 = kw(g4) * 0.125;
+          o = (g0 * w0 + g1 * w1 + g2 * w2 + g3 * w3 + g4 * w4) / (w0 + w1 + w2 + w3 + w4);
+        } else o = g0 * 0.5 + (g1 + g2 + g3 + g4) * 0.125;
+        gl_FragColor = vec4(o, 1.0);
+      }`, { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uKaris: { value: 0 } });
+    this.upMat = fsMat(/* glsl */ `
+      varying vec2 vUv; uniform sampler2D tLow, tHigh; uniform vec2 uTexel; uniform float uScatter;
+      vec3 t(vec2 o){ return texture2D(tLow, vUv + o * uTexel).rgb; }
+      void main(){
+        vec3 s = (t(vec2(-1, 1)) + t(vec2(1, 1)) + t(vec2(-1, -1)) + t(vec2(1, -1))) + (t(vec2(0, 1)) + t(vec2(-1, 0)) + t(vec2(1, 0)) + t(vec2(0, -1))) * 2.0 + t(vec2(0)) * 4.0;
+        gl_FragColor = vec4(mix(texture2D(tHigh, vUv).rgb, s / 16.0, uScatter), 1.0);
+      }`, { tLow: { value: null }, tHigh: { value: null }, uTexel: { value: new THREE.Vector2() }, uScatter: { value: 0.7 } });
+    this.compMat = fsMat(/* glsl */ `
+      varying vec2 vUv; uniform sampler2D tColor, tBloom; uniform float uStrength;
+      void main(){ vec3 c = texture2D(tColor, vUv).rgb; vec3 b = texture2D(tBloom, vUv).rgb; gl_FragColor = vec4(mix(c, b, uStrength), 1.0); }`,
+    { tColor: { value: null }, tBloom: { value: null }, uStrength: { value: 0.05 } });
+  }
+  setSize(w, h) { for (let i = 0; i < this.levels; i++) { const s = 2 << i; this.down[i].setSize(Math.max(2, Math.round(w / s)), Math.max(2, Math.round(h / s))); this.up[i].setSize(this.down[i].width, this.down[i].height); } }
+  render(r, writeBuffer, readBuffer) {
+    const d = this.downMat.uniforms; let src = readBuffer;
+    for (let i = 0; i < this.levels; i++) {
+      d.tSrc.value = src.texture; d.uTexel.value.set(1 / src.width, 1 / src.height); d.uKaris.value = i === 0 ? 1 : 0;
+      blit(this.downMat, this.down[i]); src = this.down[i];
+    }
+    const u = this.upMat.uniforms; let low = this.down[this.levels - 1];
+    for (let i = this.levels - 2; i >= 0; i--) {
+      u.tLow.value = low.texture; u.tHigh.value = this.down[i].texture; u.uTexel.value.set(1 / low.width, 1 / low.height); u.uScatter.value = this.scatter;
+      blit(this.upMat, this.up[i]); low = this.up[i];
+    }
+    const c = this.compMat.uniforms; c.tColor.value = readBuffer.texture; c.tBloom.value = low.texture; c.uStrength.value = this.strength;
+    blit(this.compMat, this.renderToScreen ? null : writeBuffer);
   }
 }
 
@@ -305,6 +398,9 @@ function initPost() {
   POST.sceneCopyRT = makeRT(w, h); U.uSceneCopy.value = POST.sceneCopyRT.texture;
   POST.distortRT = makeRT(w >> 1, h >> 1);
   POST.aoEnabled = true;
+  EXPO.meterRT = makeRT(64, 64, { minFilter: THREE.LinearMipmapLinearFilter, generateMipmaps: true });
+  EXPO.a = makeRT(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  EXPO.b = makeRT(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter }); EXPO.first = true;
 
   POST.composer = new EffectComposer(renderer, makeRT(w, h));
   POST.composer.setPixelRatio(1);
@@ -312,8 +408,7 @@ function initPost() {
   POST.distortPass = new DistortPass();
   POST.dofPass = new DOFPass();
   POST.mblurPass = new MotionBlurPass();
-  POST.bloomPass = new UnrealBloomPass(new THREE.Vector2(w, h), 0.6, 0.55, 1.6);
-  POST.bloomPass.highPassUniforms.smoothWidth.value = 1.2;
+  POST.bloomPass = new BloomPass(Q.name === 'low' ? 5 : 6);
   POST.streakPass = new StreakPass();
   POST.finalPass = new FinalPass();
   for (const p of [POST.scenePass, POST.distortPass, POST.dofPass, POST.mblurPass, POST.bloomPass, POST.streakPass, POST.finalPass]) POST.composer.addPass(p);
@@ -335,10 +430,12 @@ function updatePostFlags() {
   POST.dofPass.enabled = Q.dof && g.aperture > 0.002;
   POST.mblurPass.enabled = Q.mblur && g.shutter > 0.01;
   POST.streakPass.enabled = Q.streak && g.streak > 0.01;
-  POST.bloomPass.strength = g.bloom; POST.bloomPass.threshold = g.bloomThreshold; POST.bloomPass.radius = 0.55;
+  POST.bloomPass.strength = clamp(g.bloom * 0.1, 0, 0.35); POST.bloomPass.scatter = 0.72;
 }
 
-function renderFrame() {
+function renderFrame(dt = 1 / 60) {
+  EXPO.dt = dt;
+  if (FLAGS.capture && window.__postHook) window.__postHook(POST.grade);
   camera.updateMatrixWorld();
   POST.curViewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   updatePostFlags();

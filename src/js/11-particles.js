@@ -193,9 +193,9 @@ float softFade(float viewZ, float dist){
 function particleMaterial({ vert, frag, blending = 'premult', order = 0, depthWrite = false, uniforms = {} }) {
   const m = new THREE.ShaderMaterial({
     uniforms: Object.assign({
-      uLinDepth: U.uLinDepth, uWaterDepth: { value: blackTex }, uResolution: U.uResolution, uSoft: { value: 1 }, uTime: U.uTime,
+      uLinDepth: U.uLinDepth, uWaterDepth: U.uWaterDepth, uResolution: U.uResolution, uSoft: { value: 1 }, uTime: U.uTime,
       uKeyDir: U.uKeyDir, uKeyColor: U.uKeyColor, uSkyZenith: U.uSkyZenith, uSkyHorizon: U.uSkyHorizon, uBB: { value: TEX.blackbody },
-      uLightPos: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uLightCol: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) },
+      uLightPos: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uLightCol: { value: [0, 1, 2, 3].map(() => new THREE.Vector4()) }, uAmbCube: U.uAmbCube,
       uExposure: U.uExposure, uSceneCopy: U.uSceneCopy,
     }, uniforms),
     vertexShader: GLSL_COMMON + PARTICLE_VERT_HEAD + vert,
@@ -222,10 +222,15 @@ function syncParticleLights() {
   }
 }
 const LIGHTING_GLSL = /* glsl */ `
-uniform vec3 uKeyDir, uKeyColor, uSkyZenith, uSkyHorizon; uniform vec4 uLightPos[4], uLightCol[4];
+uniform vec3 uKeyDir, uKeyColor, uSkyZenith, uSkyHorizon; uniform vec4 uLightPos[4], uLightCol[4]; uniform sampler2D uAmbCube;
+vec3 ambCube(vec3 n){
+  vec3 n2 = n * n;
+  return n2.x * texelFetch(uAmbCube, ivec2(n.x > 0.0 ? 0 : 1, 0), 0).rgb + n2.y * texelFetch(uAmbCube, ivec2(n.y > 0.0 ? 2 : 3, 0), 0).rgb + n2.z * texelFetch(uAmbCube, ivec2(n.z > 0.0 ? 4 : 5, 0), 0).rgb;
+}
 vec3 litSprite(vec3 wpos, vec3 n, float thickness){
   float ndl = dot(n, uKeyDir) * 0.5 + 0.5;
-  vec3 c = uKeyColor * ndl * mix(1.0, 0.35, thickness) + mix(uSkyHorizon, uSkyZenith, n.y * 0.5 + 0.5) * 0.9;
+  vec3 amb = ambCube(n);
+  vec3 c = uKeyColor * ndl * mix(1.0, 0.35, thickness) + amb;
   for (int i = 0; i < 4; i++){
     if (uLightCol[i].w <= 0.0) continue;
     vec3 d = uLightPos[i].xyz - wpos; float dd = dot(d, d);

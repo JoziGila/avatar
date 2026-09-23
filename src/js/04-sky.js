@@ -231,7 +231,41 @@ function renderSkyTexture(force = false) {
   _skyLastElev = SKY.sunElev;
   skyMat.uniforms.uNightGlow.value = 1;
   blit(skyMat, skyRT);
+  integrateSkyAmbient();
   return true;
+}
+// Ambient cube: cosine-weighted integral of the sky texture around six axes. The lower face sees
+// the summit's granite lit by that same sky, not the cloud sea far below the horizon.
+let ambRT = null, ambMat = null;
+function integrateSkyAmbient() {
+  if (!ambRT) {
+    ambRT = makeRT(6, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    ambMat = fsMat(/* glsl */ `
+      varying vec2 vUv; uniform sampler2D uSky;
+      vec3 axisOf(int i){ return i == 0 ? vec3(1,0,0) : i == 1 ? vec3(-1,0,0) : i == 2 ? vec3(0,1,0) : i == 3 ? vec3(0,-1,0) : i == 4 ? vec3(0,0,1) : vec3(0,0,-1); }
+      void main(){
+        int f = int(floor(vUv.x * 6.0)); vec3 n = axisOf(f);
+        vec3 sum = vec3(0.0); float wsum = 0.0;
+        for (int j = 0; j < 12; j++) for (int i = 0; i < 24; i++){
+          float el = (float(j) + 0.5) / 12.0 * 1.5707963; float az = (float(i) + 0.5) / 24.0 * 6.2831853;
+          vec3 d = vec3(cos(el) * cos(az), sin(el), cos(el) * sin(az));
+          float w = cos(el);                                        // solid-angle weight on the upper hemisphere
+          float c = max(dot(d, n), 0.0);
+          sum += texture2D(uSky, sp_equirectUV(d)).rgb * c * w; wsum += w;
+        }
+        vec3 irr = sum / wsum * 2.0;                                 // sky seen by this axis
+        vec3 up = vec3(0.0);
+        // ground bounce: granite (albedo ~0.2) under the whole upper sky
+        for (int i = 0; i < 24; i++){ float az = (float(i) + 0.5) / 24.0 * 6.2831853; up += texture2D(uSky, sp_equirectUV(normalize(vec3(cos(az), 0.6, sin(az))))).rgb; }
+        up /= 24.0;
+        float below = max(-n.y, 0.0) + (1.0 - abs(n.y)) * 0.5;
+        irr += up * 0.2 * below;
+        gl_FragColor = vec4(irr, 1.0);
+      }`, { uSky: { value: null } });
+    U.uAmbCube.value = ambRT.texture;
+  }
+  ambMat.uniforms.uSky.value = skyRT.texture;
+  blit(ambMat, ambRT);
 }
 
 let _envCounter = 0, _envLastElev = 999;

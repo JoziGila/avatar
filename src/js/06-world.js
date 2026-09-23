@@ -125,6 +125,8 @@ const TERRAIN_U = {
   uPoolRim: { value: new THREE.Vector4(LAYOUT.pool.x, LAYOUT.pool.z, LAYOUT.pool.a, LAYOUT.pool.b) },
   uPoolRot: { value: LAYOUT.pool.rot }, uPoolLevel: { value: LAYOUT.pool.level },
   uBB: { value: TEX.blackbody || null }, uTime: U.uTime,
+  uSpot: { value: new THREE.Vector4(0, -100, 0, 0.5) },   // localized frost on vertical stone (ice impact): centre xyz, radius
+  uSpotK: { value: new THREE.Vector4(0, 0, 0, 0) },        // frost amount
 };
 function makeStoneMaterial({ tint = [1, 1, 1], terrain = false, key = 'stone' } = {}) {
   const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(...tint), roughness: 1, metalness: 0 });
@@ -133,7 +135,7 @@ function makeStoneMaterial({ tint = [1, 1, 1], terrain = false, key = 'stone' } 
     sh.fragmentShader = sh.fragmentShader
       .replace('//SP_DECL', `//SP_DECL
         uniform sampler2D uAlbedo, uNRM, uEffect, uBB; uniform float uTexScale, uTime, uPoolRot, uPoolLevel;
-        uniform vec4 uEffectBounds, uCrack, uPoolRim; uniform vec4 uPits[4];
+        uniform vec4 uEffectBounds, uCrack, uPoolRim, uSpot, uSpotK; uniform vec4 uPits[4];
         vec3 gN; float gAO; float gRough; float gWet; float gCav; vec3 gEmit;
         vec3 triNormal(vec3 p, vec3 n, float s, out vec4 nrm){
           vec3 w = pow(abs(n), vec3(6.0)); w /= (w.x + w.y + w.z);
@@ -238,6 +240,14 @@ function makeStoneMaterial({ tint = [1, 1, 1], terrain = false, key = 'stone' } 
             float fr = clamp(fx.a, 0.0, 1.0) * smoothstep(0.35, 0.65, sn * 0.6 + fx.a * 0.6);
             base = mix(base, vec3(0.62, 0.72, 0.8), fr * 0.8);
             gRough = mix(gRough, 0.35, fr); gN = normalize(mix(gN, N0, fr * 0.5));
+          }
+          // localized frost bloom where the ice spear struck
+          if (uSpotK.x > 0.0){
+            float fd = distance(vWPos, uSpot.xyz);
+            float fn = sp_vnoise2(vWPos.xy * 9.0 + vWPos.zy * 7.0) * 0.6 + sp_vnoise2(vWPos.xz * 31.0 + vWPos.y * 17.0) * 0.4;
+            float fs = smoothstep(uSpot.w, uSpot.w * 0.15, fd + (fn - 0.5) * uSpot.w * 0.7) * uSpotK.x;
+            base = mix(base, vec3(0.66, 0.76, 0.84), fs * 0.8 * smoothstep(0.3, 0.6, fn + fs * 0.3));
+            gRough = mix(gRough, 0.28, fs); gN = normalize(mix(gN, N0, fs * 0.6)); gWet = max(gWet, fs * 0.3);
           }
           // wet stone: darker, glossier, flatter normal
           float porous = 0.55;

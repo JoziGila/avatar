@@ -124,6 +124,7 @@ const U = {
   uSkyZenith: { value: new THREE.Color(0.2, 0.3, 0.5) },
   uSkyHorizon: { value: new THREE.Color(0.6, 0.5, 0.4) },
   uAmbient: { value: new THREE.Color(0.2, 0.2, 0.25) },
+  uAmbCube: { value: null },      // 6×1 cosine-integrated sky irradiance (+X −X +Y −Y +Z −Z) for sprites and FX
   uSkyTex: { value: null },
   uLinDepth: { value: null },
   uWaterDepth: { value: null },
