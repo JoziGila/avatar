@@ -1,0 +1,63 @@
+<div id="app">
+  <canvas id="gl" aria-label="Stillpoint: a real-time elemental martial-arts cinematic. Tap or click to fire the current element."></canvas>
+
+  <div id="chapter" aria-live="polite"><span class="num"></span><span class="name"></span></div>
+  <div id="hint" hidden></div>
+
+  <div id="loader" role="status" aria-live="polite">
+    <div class="mark">Stillpoint</div>
+    <div class="sub">four elements · one breath</div>
+    <div class="track"><div class="fill"></div></div>
+    <div class="msg">Quarrying granite…</div>
+  </div>
+
+  <div id="drop" hidden><div class="frame"><span>Drop a .glb character to take the summit</span></div></div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+
+  <section id="charpanel" role="dialog" aria-labelledby="charTitle" hidden>
+    <header><h2 id="charTitle">Character</h2><button id="charClose" class="ic small" aria-label="Close">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+    <p>Load a rigged humanoid in glTF binary (.glb). Mixamo, Unreal, Blender-Rigify-export and VRM-style bone names are recognised, then the choreography is retargeted onto it.</p>
+    <label class="file" for="glbFile"><input type="file" id="glbFile" accept=".glb,.gltf,model/gltf-binary"><span>Choose a .glb file</span></label>
+    <div class="row">
+      <input type="url" id="glbUrl" placeholder="https://example.com/character.glb" aria-label="GLB URL" spellcheck="false">
+      <button id="glbLoad" class="txt">Load URL</button>
+    </div>
+    <label class="chk" for="useClips"><input type="checkbox" id="useClips" checked><span>Blend the model's own idle, stance, punch, kick and spin clips when it has them</span></label>
+    <div class="row"><button id="glbReset" class="txt ghost">Back to the procedural figure</button></div>
+    <p class="note" id="charStatus">Currently: procedural figure.</p>
+  </section>
+
+  <nav id="bar" aria-label="Playback">
+    <button id="bPlay" class="ic" aria-label="Pause" title="Play / pause (Space)">
+      <svg class="i-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14"/></svg>
+      <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>
+    </button>
+    <span id="tc" class="tc" aria-live="off">00:00.0</span>
+    <div id="scrub">
+      <div id="acts" aria-hidden="true"></div>
+      <input type="range" id="scrubber" min="0" max="70" step="0.01" value="0" aria-label="Timeline position in seconds">
+    </div>
+    <div class="grp" role="group" aria-label="Element">
+      <button class="el" data-el="water" aria-label="Water" aria-pressed="false" title="Water (1)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14c2.2-2.4 4.2-2.4 6 0s3.8 2.4 6 0 3.8-2.4 6 0M3 9c2.2-2.4 4.2-2.4 6 0s3.8 2.4 6 0 3.8-2.4 6 0"/></svg></button>
+      <button class="el" data-el="earth" aria-label="Earth" aria-pressed="false" title="Earth (2)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19l6-11 4 6 2-3 6 8z"/></svg></button>
+      <button class="el" data-el="fire" aria-label="Fire" aria-pressed="false" title="Fire (3)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2.4 1.3-3.6 2.4-4.8.3 1.8 1.1 2.6 2 2.8C11 8.6 11 6 12 3z"/></svg></button>
+      <button class="el" data-el="air" aria-label="Air" aria-pressed="false" title="Air (4)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h11a3 3 0 1 0-3-3M3 13h15a3 3 0 1 1-3 3M3 17h7"/></svg></button>
+    </div>
+    <button id="bCam" class="ic" aria-label="Orbit camera" aria-pressed="false" title="Orbit camera for free play (O)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="4"/><circle cx="12" cy="12" r="2.2"/><path d="M19.5 9.5l1.5 2.5-2.8.6"/></svg></button>
+    <button id="bSound" class="ic" aria-label="Turn sound on" aria-pressed="false" title="Sound (M)">
+      <svg class="i-muted" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h3l5-4v14l-5-4H4zM16 9l5 6M21 9l-5 6"/></svg>
+      <svg class="i-sound" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h3l5-4v14l-5-4H4zM16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg></button>
+    <label class="sel" for="quality"><span class="vh">Quality</span>
+      <select id="quality" title="Rendering quality (adapts automatically to hold frame rate)">
+        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option>
+      </select></label>
+    <button id="bChar" class="ic" aria-label="Load a character" aria-expanded="false" title="Load a GLB character">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="2.6"/><path d="M12 9v6M7 11l5-1.5 5 1.5M9 21l3-6 3 6"/></svg></button>
+  </nav>
+</div>

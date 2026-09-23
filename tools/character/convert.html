@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Stillpoint character converter</title></head>
+<body style="margin:0;background:#222">
+<!--
+  Offline tool: converts a Microsoft Rocketbox avatar (MIT licence, https://github.com/microsoft/Microsoft-Rocketbox)
+  from FBX + TGA into the compact, dressed GLB that index.html embeds as its default character.
+  Run it through a static server that exposes:  /three/ -> three@0.186.0 package root,
+  ?src=<dir>/ -> folder with <name>_facial.fbx and the Textures/*.tga files. It calls window.saveFile(name, base64)
+  when present (headless runner), otherwise downloads the GLB.
+-->
+<script type="importmap">{ "imports": { "three": "/three/build/three.module.js", "three/addons/": "/three/examples/jsm/" } }</script>
+<script type="module" src="./convert.js"></script>
+</body>
+</html>
