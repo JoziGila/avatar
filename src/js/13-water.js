@@ -684,7 +684,7 @@ function iceShatter(ctx) {
   PS.smoke.emit({ count: 8, scale: 1, pos: hp, radius: 0.12, vel: back.clone().multiplyScalar(0.9), spread: 0.8, life: [0.6, 1.2], size: [0.08, 0.15], kind: 2 });
   PS.debris.emit({ count: 60, pos: hp, radius: 0.1, vel: back.clone().multiplyScalar(2), spread: 2.5, life: [0.6, 1.2], size: [0.006, 0.012], kind: 1 });
   hitStop(3); addTrauma(0.45);
-  POST.grade.flash = Math.max(POST.grade.flash, 0.12); POST.grade.flashColor.setRGB(0.85, 0.95, 1.0);
+  flashFrame(0.12, 0.85, 0.95, 1.0);
   sfx('iceShatter', { pos: hp, gain: 1 });
 }
 

@@ -42,7 +42,8 @@ body.orbit #gl { cursor: grab; }
 #chapter.show { opacity: 0.92; }
 #chapter .num { font: 600 11px/1 var(--ui); letter-spacing: 0.32em; color: var(--mist); }
 #chapter .name { font: 400 clamp(18px, 2.2vw, 26px)/1 var(--display); letter-spacing: 0.24em; text-transform: uppercase; color: var(--accent); }
-body.bar-on #chapter { bottom: calc(max(var(--lb), 64px) + 18px + env(safe-area-inset-bottom, 0px)); }
+body.bar-on #chapter { bottom: calc(max(var(--lb), var(--barh, 64px)) + 18px + env(safe-area-inset-bottom, 0px)); }
+body.freeplay #chapter { opacity: 0; }
 
 #hint { position: absolute; left: 50%; top: calc(var(--lb) + 14px + env(safe-area-inset-top, 0px)); transform: translateX(-50%);
   font: 500 12px/1.3 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--mist);
@@ -3880,6 +3881,8 @@ vec3 litSprite(vec3 wpos, vec3 n, float thickness){
 const FXS = { list: [] };
 function fxModule(m) { FXS.list.push(m); return m; }
 function sfx(name, o) { if (!TL.preroll && typeof playSfx === 'function') playSfx(name, o || {}); }
+// full-frame flash: live playback only (never baked in by a seek's pre-roll)
+function flashFrame(amount, r = 1, g = 1, b = 1) { if (TL.preroll) return; POST.grade.flash = Math.max(POST.grade.flash, amount); POST.grade.flashColor.setRGB(r, g, b); }
 const PS = { fire: null, smoke: null, debris: null };
 
 // ---- figure probes: world positions and velocities of the joints the elements follow ----------
@@ -5022,7 +5025,7 @@ function iceShatter(ctx) {
   PS.smoke.emit({ count: 8, scale: 1, pos: hp, radius: 0.12, vel: back.clone().multiplyScalar(0.9), spread: 0.8, life: [0.6, 1.2], size: [0.08, 0.15], kind: 2 });
   PS.debris.emit({ count: 60, pos: hp, radius: 0.1, vel: back.clone().multiplyScalar(2), spread: 2.5, life: [0.6, 1.2], size: [0.006, 0.012], kind: 1 });
   hitStop(3); addTrauma(0.45);
-  POST.grade.flash = Math.max(POST.grade.flash, 0.12); POST.grade.flashColor.setRGB(0.85, 0.95, 1.0);
+  flashFrame(0.12, 0.85, 0.95, 1.0);
   sfx('iceShatter', { pos: hp, gain: 1 });
 }
 
@@ -5444,6 +5447,358 @@ fxModule({
     }
     // cooling scorch glow
     if (T >= t.cut && T < t.cut + 3) requestLight(_v1.copy(FIG.palms).addScaledVector(fireDir(_v2, 0), 4.5).setY(0.3), FIRE_COL, 1.2 * (1 - (T - t.cut) / 3), 2, 8);
+  },
+});
+
+// ---- 16-air.js ----
+// §16 AIR — the wind made visible: a vortex gathers around the circle walk (leaves, dust, embers,
+// torn cloth scraps from the pillars), streamline ribbons trace the flow, the spin lifts the body
+// in a funnel of air, and at altitude the whole cloud sea turns in a spiral.
+const AIR = {
+  t: { gather: 47.0, scraps: [48.4, 49.2, 50.0, 50.7], spin: 52.35, lift: 53.0, reveal: 55.2, end: 58.0 },
+  lines: [], M: 44, H: 30, mesh: null, amt: 0,
+};
+
+// ---- streamline ribbons: CPU tracers advected through the same field as cloth and particles ------
+function initWindLines() {
+  const M = AIR.M, H = AIR.H;
+  const g = new THREE.BufferGeometry();
+  const n = M * H * 2;
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aPrev', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aNext', new THREE.BufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  const side = new Float32Array(n), along = new Float32Array(n), line = new Float32Array(n);
+  const idx = [];
+  for (let l = 0; l < M; l++) for (let i = 0; i < H; i++) {
+    const v = (l * H + i) * 2;
+    side[v] = -1; side[v + 1] = 1; along[v] = along[v + 1] = i / (H - 1); line[v] = line[v + 1] = l;
+    if (i < H - 1) idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
+  }
+  g.setAttribute('aSide', new THREE.BufferAttribute(side, 1)); g.setAttribute('aAlong', new THREE.BufferAttribute(along, 1));
+  g.setAttribute('aAlpha', new THREE.BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setIndex(idx);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uWidth: { value: 0.018 }, uAmbCube: U.uAmbCube, uKeyColor: U.uKeyColor, uLinDepth: U.uLinDepth, uWaterDepth: U.uWaterDepth, uResolution: U.uResolution, uSoft: { value: 1 } },
+    vertexShader: GLSL_COMMON + /* glsl */ `
+      attribute vec3 aPrev, aNext; attribute float aSide, aAlong, aAlpha; uniform float uWidth;
+      varying float vAlong, vSide, vAlpha, vViewZ;
+      void main(){
+        vec4 p = viewMatrix * vec4(position, 1.0), a = viewMatrix * vec4(aPrev, 1.0), b = viewMatrix * vec4(aNext, 1.0);
+        vec2 t = b.xy - a.xy; t = length(t) > 1e-6 ? normalize(t) : vec2(1.0, 0.0);
+        float w = uWidth * sin(3.14159 * aAlong) * (0.4 + 0.6 * aAlong);
+        p.xy += vec2(-t.y, t.x) * aSide * w;
+        vAlong = aAlong; vSide = aSide; vAlpha = aAlpha; vViewZ = -p.z;
+        gl_Position = projectionMatrix * p;
+      }`,
+    fragmentShader: GLSL_COMMON + SOFT_FRAG + /* glsl */ `
+      uniform sampler2D uAmbCube; uniform vec3 uKeyColor; varying float vAlong, vSide, vAlpha, vViewZ;
+      void main(){
+        float core = 1.0 - vSide * vSide;
+        float fade = smoothstep(0.0, 0.35, vAlong) * vAlpha;
+        vec3 sky = texelFetch(uAmbCube, ivec2(2, 0), 0).rgb;
+        vec3 col = (sky * 2.2 + uKeyColor * 0.25) * core * fade * softFade(vViewZ, 0.3);
+        gl_FragColor = vec4(col, 0.0);
+      }`,
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  });
+  AIR.mesh = new THREE.Mesh(g, mat); AIR.mesh.frustumCulled = false; AIR.mesh.renderOrder = 29; AIR.mesh.visible = false;
+  fxScene.add(AIR.mesh);
+  for (let l = 0; l < M; l++) AIR.lines.push({ pts: Array.from({ length: H }, () => V3()), age: 0, life: 1, alive: false });
+}
+function seedLine(L, c, R, h) {
+  const a = Math.random() * TAU, r = R * (0.35 + Math.random() * 0.95);
+  const p = V3(c.x + Math.cos(a) * r, c.y + 0.1 + Math.random() * h, c.z + Math.sin(a) * r);
+  for (const q of L.pts) q.copy(p);
+  L.age = 0; L.life = 1.2 + Math.random() * 1.6; L.alive = true; L.acc = 0;
+}
+const _wl = V3();
+function updateWindLines(T, dt, amt, c, R, h) {
+  const M = AIR.M, H = AIR.H, g = AIR.mesh.geometry;
+  AIR.mesh.visible = amt > 0.01;
+  if (!AIR.mesh.visible) { for (const L of AIR.lines) L.alive = false; return; }
+  const P = g.attributes.position.array, A = g.attributes.aPrev.array, B = g.attributes.aNext.array, AL = g.attributes.aAlpha.array;
+  const sub = 2, h2 = dt / sub;
+  AIR.lines.forEach((L, l) => {
+    if (!L.alive || L.age > L.life) { if (Math.random() < amt) seedLine(L, c, R, h); else { L.alive = false; } }
+    if (L.alive && dt > 0) {
+      L.age += dt;
+      // head advances through the flow; the tail is the head's recent path
+      const head = L.pts[0];
+      for (let s = 0; s < sub; s++) { windAt(head.x, head.y, head.z, T, _wl); head.addScaledVector(_wl, h2); }
+      L.acc += dt;
+      if (L.acc > 0.022) { L.acc = 0; for (let i = H - 1; i > 0; i--) L.pts[i].copy(L.pts[i - 1]); }
+    }
+    const fade = L.alive ? smoothstep(0, 0.3, L.age) * (1 - smoothstep(L.life - 0.4, L.life, L.age)) * amt : 0;
+    for (let i = 0; i < H; i++) {
+      const p = L.pts[i], pp = L.pts[Math.max(0, i - 1)], pn = L.pts[Math.min(H - 1, i + 1)];
+      for (let k = 0; k < 2; k++) {
+        const v = ((l * H + i) * 2 + k), o = v * 3;
+        P[o] = p.x; P[o + 1] = p.y; P[o + 2] = p.z;
+        A[o] = pn.x; A[o + 1] = pn.y; A[o + 2] = pn.z;   // aPrev = older sample (toward the tail)
+        B[o] = pp.x; B[o + 1] = pp.y; B[o + 2] = pp.z;
+        AL[v] = fade;
+      }
+    }
+  });
+  for (const k of ['position', 'aPrev', 'aNext', 'aAlpha']) g.attributes[k].needsUpdate = true;
+}
+
+// ---- the act ----------------------------------------------------------------------------------------
+const _ac = V3();
+function airCentre(T, out) {
+  // the circle walk's centre while walking, the figure itself once it spins
+  const w = AIR_WALK; const k = smoothstep(51.4, 52.6, T);
+  return out.set(lerp(w.c[0], FIG.p.hips.x, k), groundHeight(w.c[0], w.c[1]), lerp(w.c[1], FIG.p.hips.z, k));
+}
+function updateAir(T, dt) {
+  const t = AIR.t;
+  const gather = smoothstep(t.gather, 51.0, T) * (1 - smoothstep(t.end - 0.4, t.end + 0.8, T));
+  const spin = smoothstep(t.spin - 0.1, t.lift + 0.3, T) * (1 - smoothstep(t.end - 0.4, t.end + 0.6, T));
+  const grand = smoothstep(t.reveal - 0.6, t.reveal + 1.4, T) * (1 - smoothstep(t.end - 0.2, t.end + 0.8, T));
+  AIR.amt = Math.max(gather, spin);
+  const c = airCentre(T, _ac);
+  const R = lerp(lerp(2.4, 1.5, spin), 22, grand), H = lerp(lerp(3.5, 7, spin), 30, grand);
+  // one field for everything: cloth (WIND.vortex), CPU streamlines and GPU particles (FIELD.vortex)
+  const spinV = lerp(lerp(3.2, 8.5, spin), 14, grand), pull = lerp(0.8, 1.6, spin), up = lerp(0.6, 3.2, spin);
+  if (AIR.amt > 0.001) {
+    WIND.vortex = WIND.vortex || { c: V3(), r: 1, spin: 0, pull: 0, up: 0, h: 0, amt: 0 };
+    Object.assign(WIND.vortex, { r: R, spin: spinV, pull, up, h: H, amt: AIR.amt }); WIND.vortex.c.copy(c);
+    FIELD.vortex.set(c.x, c.z, R, AIR.amt); FIELD.vortex2.set(spinV, pull, up, H); FIELD.vortexY = c.y;
+  } else if (WIND.vortex) { WIND.vortex.amt = 0; FIELD.vortex.w = 0; }
+  updateWindLines(T, dt, AIR.amt * (1 - grand * 0.5), c, R * 1.1, H * 0.8);
+  if (dt <= 0 || AIR.amt <= 0.01) return;
+  // gathered debris: leaves blown in from beyond the edge, grit and dust off the granite
+  const edge = 5 + Math.random() * 4, a = Math.random() * TAU;
+  PS.debris.emit({ count: rate(28 * gather, dt), scale: 1, pos: _v1.set(c.x + Math.cos(a) * edge, 0.3 + Math.random() * 1.2, c.z + Math.sin(a) * edge), radius: 1.2, vel: V3(0, 0.6, 0), spread: 1, life: [4, 7], size: [0.025, 0.045], kind: 2 });
+  PS.debris.emit({ count: 90 * AIR.amt * dt, pos: c, radius: R * 0.9, vel: V3(0, 0.6, 0), spread: 0.6, life: [0.8, 1.6], size: [0.05, 0.09], kind: 4, param: 0.5 });
+  PS.smoke.emit({ count: 14 * AIR.amt * dt, pos: _v1.set(c.x, c.y + 0.08, c.z), radius: R * 0.8, vel: V3(0, 0.2, 0), spread: 0.3, life: [1.6, 3], size: [0.2, 0.4], kind: 1, param: 0.25 });
+  if (Math.random() < dt * 4 * gather) PS.debris.emit({ count: 3, scale: 1, pos: _v1.set(c.x, c.y + 0.05, c.z), radius: R, vel: V3(0, 1.2, 0), spread: 0.6, life: [1.5, 2.5], size: [0.01, 0.02], kind: 0 });
+  // the last embers of the fire act rise into the spiral
+  if (T < 52 && Math.random() < dt * 8) PS.fire.emit({ count: 2, scale: 1, pos: _v1.set(c.x + (Math.random() - 0.5) * 6, 0.2, c.z + (Math.random() - 0.5) * 6), radius: 0.5, vel: V3(0, 0.4, 0), spread: 0.3, life: [2.5, 4], size: [0.004, 0.008], kind: 1, param: 0.6 });
+  // the funnel: refraction swirls stacked up the spin, a dust ring racing round the base
+  if (spin > 0.05) {
+    for (let k = 0; k < 4; k++) distortSprite(_v1.set(c.x, c.y + 0.6 + k * 1.1 + FIG.p.hips.y * 0.4, c.z), 0.9 + k * 0.35, 0.035 * spin, 2, 0, 0);
+    PS.smoke.emit({ count: 30 * spin * dt, pos: _v1.set(c.x, c.y + 0.05, c.z), radius: 1.3, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.5, 0), spread: 2.2, life: [1, 1.8], size: [0.2, 0.35], kind: 1, param: 0.2 });
+    PS.debris.emit({ count: 160 * spin * dt, pos: _v1.set(c.x, c.y + 0.5, c.z), radius: 1.4, vel: V3(0, 2.5, 0), spread: 0.8, life: [0.6, 1.2], size: [0.06, 0.1], kind: 4, param: 0.9 });
+  }
+  // at altitude: huge streaks sweep round the mountain with the parting clouds
+  if (grand > 0.05) {
+    const ga = Math.random() * TAU, gr = 12 + Math.random() * 30;
+    PS.debris.emit({ count: 60 * grand * dt, pos: _v1.set(Math.cos(ga) * gr, -4 + Math.random() * 18, Math.sin(ga) * gr), radius: 4, vel: V3(0, 0, 0), spread: 1, life: [1.2, 2.2], size: [0.4, 0.8], kind: 4, param: 0.6 });
+  }
+}
+
+fxModule({
+  init() {
+    initWindLines();
+    AIR.t.scraps.forEach((tt, i) => atState(tt, () => { const pc = CLOTH.scraps[i]; if (pc) releaseScrap(pc); }, 'scrap ' + i));
+    at(AIR.t.gather + 0.2, () => sfx('windRise', { gain: 0.9, dur: 5 }), 'wind rise');
+    at(AIR.t.spin, () => sfx('vortex', { gain: 1, dur: 5.5 }), 'vortex');
+  },
+  reset() { for (const L of AIR.lines) L.alive = false; if (WIND.vortex) WIND.vortex.amt = 0; FIELD.vortex.w = 0; resetCloth(); },
+  update(T, dt) {
+    if (TL.mode !== 'cinematic') return;
+    // scraps stay torn after a seek (the cloth reset re-pins everything)
+    AIR.t.scraps.forEach((tt, i) => { const pc = CLOTH.scraps[i]; if (pc && T >= tt && !pc.released) releaseScrap(pc); });
+    updateAir(T, dt);
+  },
+});
+
+// ---- 16u-unity.js ----
+// §16u UNITY — four interlocking rings (water, stone, flame, wind) orbit the hovering figure, are
+// drawn in and compressed to a blinding point between the palms, a held silence, then a spherical
+// shockwave with a refractive edge blasts the cloud sea away under the stars.
+const UNITY = {
+  t: { form: [58.2, 58.7, 59.2, 59.7], compress: 63.45, point: 64.95, release: 65.05, fade: 68.7 },
+  rings: [], stones: null, windRing: null, sphere: null, rim: null, shockR: 0,
+};
+// ring planes: normals in the figure frame, tilted like the hoops of an armillary sphere
+const RING_DEFS = [
+  { el: 'water', r: 1.15, tilt: [72, 0], speed: 1.4, color: [0.5, 0.8, 1.0] },
+  { el: 'stone', r: 1.35, tilt: [-60, 55], speed: -0.8, color: [0.8, 0.7, 0.55] },
+  { el: 'fire', r: 1.25, tilt: [18, -62], speed: 1.9, color: [1.0, 0.5, 0.15] },
+  { el: 'air', r: 1.5, tilt: [-24, 118], speed: -2.3, color: [0.85, 0.9, 1.0] },
+];
+const _uq = new THREE.Quaternion(), _ue = new THREE.Euler(), _un = V3(), _ut = V3(), _ub = V3(), _up = V3();
+function ringFrame(i, T, out) {
+  const d = RING_DEFS[i];
+  const prec = T * 0.25 + i * 1.3;   // the hoops precess slowly round the vertical
+  _ue.set(d.tilt[0] * DEG, (d.tilt[1] * DEG) + prec, 0, 'YXZ'); _uq.setFromEuler(_ue);
+  out.n = (out.n || V3()).set(0, 1, 0).applyQuaternion(_uq);
+  out.t = (out.t || V3()).set(1, 0, 0).applyQuaternion(_uq);
+  out.b = (out.b || V3()).crossVectors(out.n, out.t);
+  return out;
+}
+function ringPoint(F, c, R, a, out) { return out.copy(c).addScaledVector(F.t, Math.cos(a) * R).addScaledVector(F.b, Math.sin(a) * R); }
+
+function initUnity() {
+  // stone hoop: tumbling granite chunks (instanced)
+  const geo = chunkGeometry(61, 1, 0.8, 0.9, 1);
+  UNITY.stones = new THREE.InstancedMesh(geo, WORLD.stoneMat, 18); UNITY.stones.castShadow = true; UNITY.stones.frustumCulled = false; UNITY.stones.visible = false;
+  UNITY.stones.instanceMatrix.setUsage(THREE.DynamicDrawUsage); world.add(UNITY.stones);
+  // wind hoop: a thin torus of scrolling streaks (additive)
+  const tg = new THREE.TorusGeometry(1, 0.05, 6, 160);
+  const windMat = new THREE.ShaderMaterial({
+    uniforms: { uTime: U.uTime, uAmt: { value: 0 }, uAmbCube: U.uAmbCube, uLinDepth: U.uLinDepth, uWaterDepth: U.uWaterDepth, uResolution: U.uResolution, uSoft: { value: 1 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; varying float vViewZ; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vViewZ = -mv.z; gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: GLSL_COMMON + SOFT_FRAG + /* glsl */ `uniform float uTime, uAmt; uniform sampler2D uAmbCube; varying vec2 vUv; varying float vViewZ;
+      void main(){
+        float a = vUv.x * 160.0; float lane = floor(vUv.y * 5.0);
+        float s = sp_vnoise2(vec2(a * 0.18 - uTime * 9.0 * (1.0 + lane * 0.2), lane * 7.3));
+        float streak = smoothstep(0.55, 0.9, s) * (1.0 - abs(vUv.y * 2.0 - 1.0));
+        vec3 sky = texelFetch(uAmbCube, ivec2(2, 0), 0).rgb;
+        gl_FragColor = vec4((sky * 3.0 + vec3(0.35, 0.4, 0.5)) * streak * uAmt * softFade(vViewZ, 0.2), 0.0);
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  });
+  UNITY.windRing = new THREE.Mesh(tg, windMat); UNITY.windRing.frustumCulled = false; UNITY.windRing.renderOrder = 29; UNITY.windRing.visible = false; fxScene.add(UNITY.windRing);
+  // the shockwave: a refracting shell (distortion target) and a faint glowing rim (scene)
+  const sg = new THREE.IcosahedronGeometry(1, 5);
+  const shellMat = new THREE.ShaderMaterial({
+    uniforms: { uAmt: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec3 vN, vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `uniform float uAmt; varying vec3 vN, vV;
+      void main(){ float f = 1.0 - abs(dot(vN, vV)); float edge = pow(f, 4.0);
+        gl_FragColor = vec4(vN.xy * edge * 0.09 * uAmt, edge * uAmt * 0.6, 0.0); }`,
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneFactor,
+  });
+  UNITY.sphere = new THREE.Mesh(sg, shellMat); UNITY.sphere.frustumCulled = false; UNITY.sphere.visible = false; distortScene.add(UNITY.sphere);
+  const rimMat = new THREE.ShaderMaterial({
+    uniforms: { uAmt: { value: 0 }, uHeat: { value: 1 } },
+    vertexShader: /* glsl */ `varying vec3 vN, vV; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `uniform float uAmt, uHeat; varying vec3 vN, vV;
+      void main(){ float f = 1.0 - abs(dot(vN, vV)); float rim = pow(f, 6.0) * 1.5 + pow(f, 2.0) * 0.04;
+        vec3 c = mix(vec3(0.55, 0.75, 1.0), vec3(1.0, 0.8, 0.5), uHeat);
+        gl_FragColor = vec4(c * rim * uAmt, 0.0); }`,
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor,
+  });
+  UNITY.rim = new THREE.Mesh(sg, rimMat); UNITY.rim.frustumCulled = false; UNITY.rim.visible = false; UNITY.rim.renderOrder = 35; fxScene.add(UNITY.rim);
+  for (let i = 0; i < 4; i++) UNITY.rings.push({});
+}
+
+function updateUnity(T, dt) {
+  const t = UNITY.t;
+  const palms = FIG.palms, chest = _up.copy(FIG.p.upperChest).lerp(FIG.p.hips, 0.35);
+  const before = T < t.release;
+  // compression: every hoop is drawn into the point between the palms
+  const comp = Ease.inCubic(clamp((T - t.compress) / (t.point - t.compress)));
+  const centre = V3().copy(chest).lerp(palms, smoothstep(t.compress - 0.3, t.compress + 0.6, T));
+  UNITY.stones.visible = false; UNITY.windRing.visible = false;
+  for (let i = 0; i < 4; i++) {
+    const d = RING_DEFS[i];
+    const grow = Ease.outBack(clamp((T - t.form[i]) / 0.9));
+    const alive = before && T >= t.form[i];
+    if (!alive) continue;
+    const F = ringFrame(i, T, UNITY.rings[i]);
+    const R = d.r * grow * (1 - comp * 0.985);
+    const spin = d.speed * (1 + comp * 6);
+    const phase = T * spin;
+    if (d.el === 'water') {
+      const n = 72;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * TAU + phase;
+        const pulse = 0.055 + 0.02 * Math.sin(a * 3 - T * 5);
+        ssfBlob(ringPoint(F, centre, R, a, _v1), pulse * (1 - comp * 0.7) * Math.min(1, grow + 0.2), 0.1);
+      }
+      if (dt > 0 && Math.random() < dt * 20 * (1 - comp)) PS.debris.emit({ count: 2, scale: 1, pos: ringPoint(F, centre, R, Math.random() * TAU, _v1), radius: 0.03, vel: _v2.copy(F.t).multiplyScalar(0), spread: 0.4, life: [0.6, 1.2], size: [0.005, 0.01], kind: 1 });
+    } else if (d.el === 'stone') {
+      const n = 16, m = UNITY.stones; m.visible = true;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * TAU + phase;
+        ringPoint(F, centre, R, a, _v1);
+        _ue.set(T * (1.3 + k * 0.1) + k, T * (0.9 + k * 0.07), k * 0.7); _uq.setFromEuler(_ue);
+        const s = (0.05 + 0.035 * ((k * 7) % 5) / 4) * Math.min(1, grow) * (1 - comp * 0.9);
+        _m1.compose(_v1, _uq, _v2.set(s, s, s)); m.setMatrixAt(k, _m1);
+      }
+      m.count = n; m.instanceMatrix.needsUpdate = true;
+    } else if (d.el === 'fire') {
+      if (dt > 0) {
+        const n = Math.round(12 + comp * 12);
+        for (let k = 0; k < n; k++) {
+          const a = Math.random() * TAU;
+          ringPoint(F, centre, R, a, _v1);
+          _v2.copy(F.t).multiplyScalar(-Math.sin(a)).addScaledVector(F.b, Math.cos(a)).multiplyScalar(R * spin);   // tangential
+          PS.fire.emit({ count: 55 * dt * Math.min(1, grow), pos: _v1, radius: 0.03, vel: _v2, spread: 0.2, life: [0.18, 0.34], size: [0.03, 0.06], kind: k % 4 === 0 ? 3 : 0, param: 0.9 });
+        }
+      }
+    } else {
+      const w = UNITY.windRing; w.visible = true;
+      w.position.copy(centre); w.scale.setScalar(Math.max(R, 0.01));
+      w.quaternion.setFromUnitVectors(_v3.set(0, 0, 1), F.n);
+      w.rotateZ(phase);
+      w.material.uniforms.uAmt.value = Math.min(1, grow) * (1 - comp * 0.3);
+      if (R > 0.2) for (let k = 0; k < 3; k++) distortSprite(ringPoint(F, centre, R, phase * 1.5 + k * 2.09, _v1), 0.25, 0.03, 0, 0, 0);
+    }
+  }
+  // the point: grows to blinding, pulls everything in
+  const pt = smoothstep(t.compress + 0.2, t.point, T) * (before ? 1 : 0);
+  if (pt > 0) {
+    const fl = 1 + 0.08 * Math.sin(T * 60);
+    glow(palms, 0.03 + pt * 0.05, 30 * pt * pt * fl, 26 * pt * pt * fl, 18 * pt * pt * fl, 0.8);
+    FIELD.attract.set(palms.x, palms.y, palms.z, 6 * pt);
+    distortSprite(palms, 0.5 + pt * 0.6, 0.05 * pt, 2, 0, 0);
+  } else FIELD.attract.w = 0;
+  // release: the shell races outward; the clouds are shoved away by CLOUD.blast (§20)
+  const st = T - t.release;
+  if (st >= 0 && st < 3.5) {
+    const k = Ease.outCubic(clamp(st / 1.7));
+    const R = 0.3 + 170 * k;
+    UNITY.shockR = R;
+    const fade = 1 - smoothstep(0.9, 2.6, st);
+    for (const m of [UNITY.sphere, UNITY.rim]) { m.visible = fade > 0.001; m.position.copy(FIG.palms); m.scale.setScalar(R); }
+    UNITY.sphere.material.uniforms.uAmt.value = fade;
+    UNITY.rim.material.uniforms.uAmt.value = fade * (1 - smoothstep(0, 2.2, st) * 0.7) * 1.6;
+    UNITY.rim.material.uniforms.uHeat.value = 1 - smoothstep(0, 0.6, st);
+    FIELD.shock.set(FIG.palms.x, FIG.palms.y, FIG.palms.z, R); FIELD.shock2.set(1.2 + R * 0.05, 30 * fade, 0, 0);
+    WIND.blasts.length = 0; WIND.blasts.push({ c: FIG.palms.clone(), r: R, w: 1.5 + R * 0.1, amt: 16 * fade });
+  } else { UNITY.sphere.visible = UNITY.rim.visible = false; if (st >= 3.5 || st < 0) { WIND.blasts.length = 0; if (st < 0) FIELD.shock2.y = Math.min(FIELD.shock2.y, 0); } }
+  // afterwards: motes of all four elements drift down around the descending figure
+  if (st > 0.3 && T < t.fade + 0.8 && dt > 0) {
+    const c = FIG.p.hips; const k = 1 - smoothstep(66.5, 69, T);
+    PS.fire.emit({ count: 20 * k * dt, pos: _v1.set(c.x, c.y + 2.5, c.z), radius: 3, vel: V3(0, -0.2, 0), spread: 0.3, life: [3, 5], size: [0.004, 0.007], kind: 1, param: 0.5 });
+    PS.debris.emit({ count: 30 * k * dt, pos: _v1.set(c.x, c.y + 3, c.z), radius: 3, vel: V3(0, -0.3, 0), spread: 0.3, life: [3, 5], size: [0.004, 0.008], kind: 3 });
+    PS.debris.emit({ count: 5 * k * dt, pos: _v1.set(c.x, c.y + 3, c.z), radius: 3, vel: V3(0, -0.2, 0), spread: 0.3, life: [4, 6], size: [0.025, 0.04], kind: 2 });
+  }
+}
+function unityRelease(ctx) {
+  if (ctx.skipped) return;
+  flashFrame(REDUCED_MOTION ? 0.25 : 0.85, 1.0, 0.97, 0.92);
+  hitStop(4); addTrauma(0.7);
+  const p = FIG.palms;
+  for (const k of [0, 3]) PS.fire.emit({ count: 300, pos: p, radius: 0.1, vel: V3(0, 0, 0), spread: 9, life: [0.3, 0.8], size: [0.03, 0.08], kind: k, param: 1 });
+  PS.debris.emit({ count: 500, pos: p, radius: 0.1, vel: V3(0, 0, 0), spread: 8, life: [1, 2.2], size: [0.004, 0.01], kind: 3 });
+  PS.debris.emit({ count: 200, pos: p, radius: 0.1, vel: V3(0, 0, 0), spread: 10, life: [0.6, 1.2], size: [0.1, 0.2], kind: 4, param: 1 });
+  sfx('release', { pos: p, gain: 1 });
+}
+
+fxModule({
+  init() {
+    initUnity();
+    const t = UNITY.t;
+    t.form.forEach((tt, i) => at(tt, () => sfx('ringForm', { gain: 0.7, pitch: 0.8 + i * 0.15, el: RING_DEFS[i].el }), 'ring ' + i));
+    at(t.compress, () => sfx('compress', { gain: 0.9, dur: t.point - t.compress }), 'compress');
+    at(t.release, (ctx) => unityRelease(ctx), 'release');
+    at(68.05, (ctx) => { if (ctx.skipped) return; const c = FIG.p.hips; PS.smoke.emit({ count: 26, pos: V3(c.x, groundHeight(c.x, c.z) + 0.05, c.z), radius: 0.3, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.1, 0), spread: 1.8, life: [1.2, 2.2], size: [0.12, 0.22], kind: 1, param: 0.3 }); sfx('land', { gain: 0.6 }); }, 'land');
+  },
+  reset() { UNITY.stones.visible = false; UNITY.windRing.visible = false; UNITY.sphere.visible = UNITY.rim.visible = false; FIELD.attract.w = 0; WIND.blasts.length = 0; },
+  update(T, dt) { if (TL.mode === 'cinematic') updateUnity(T, dt); },
+  lights() {
+    const T = TL.T, t = UNITY.t;
+    if (TL.mode !== 'cinematic') return;
+    const ringsOn = T > t.form[0] && T < t.release;
+    if (ringsOn) {
+      const c = _v1.copy(FIG.p.upperChest);
+      requestLight(c, FIRE_COL, 1.2 * smoothstep(t.form[2], t.form[2] + 0.8, T), 3, 10);
+      _c1.setRGB(0.55, 0.75, 1.0); requestLight(c.add(_v2.set(0, 0.4, 0)), _c1, 0.8 * smoothstep(t.form[0], t.form[0] + 0.8, T), 2, 10);
+    }
+    const pt = smoothstep(t.compress + 0.2, t.point, T) * (T < t.release ? 1 : 0);
+    if (pt > 0) { _c1.setRGB(1.0, 0.9, 0.75); requestLight(FIG.palms, _c1, 14 * pt * pt, 10, 14); }
+    const st = T - t.release;
+    if (st >= 0 && st < 1.2) { _c1.setRGB(1.0, 0.95, 0.88); requestLight(FIG.palms, _c1, 40 * (1 - st / 1.2), 10, 60); }
   },
 });
 
@@ -6351,7 +6706,7 @@ function tlSeek(T, { preroll = 2.5, step = 1 / 30, stepFn = null } = {}) {
   }
   TL.T = T;
   TL.preroll = false; TL.hitStop = 0; TL.trauma = 0;
-  POST.cut = true;
+  POST.cut = true; POST.grade.flash = 0;
 }
 
 // ---- 20-director.js ----
@@ -6620,6 +6975,486 @@ function applyTracks(T) {
 }
 const FX_STATE = { exposureMul: 1, bloomMul: 1, warm: 0 };
 
+// ---- 21-freeplay.js ----
+// §21 FREE PLAY — pick an element, tap to cast it at a point on the summit, drag to steer it.
+// The figure turns to the target and strikes with the element's form; the effects reuse each
+// element's systems (screen-space water, stone and rubble, fire, wind fields).
+const FREE = { el: null, yaw: 0, yawTarget: 0, strikeT: 9, strikeSide: 0, base: null, strike: null, prevT: 0, casts: [], drag: null, spikes: [], savedT: 0 };
+const FREE_ORIGIN = [0, 0.05];
+
+function freePoses(el, yaw) {
+  const st = (o) => Object.assign({ o: FREE_ORIGIN, yaw }, o);
+  if (el === 'water') return {
+    base: arms(pose({ stance: st({ L: [0.15, 0.3], R: [-0.16, -0.24], h: 0.84, toeR: 30, knee: 0.35 }), spine: [2, 6, 0], shapeL: 'cup', shapeR: 'open', face: [0.1, 0, 0.2, 0.1, 0] }),
+      { arm: [48, -58, -72], elbow: [62, -70], hand: [-12, 0, 0] }, { arm: [72, -34, 8], elbow: [88, 4], hand: [4, 0, 0] }),
+    strike: arms(pose({ stance: st({ L: [0.15, 0.5], R: [-0.18, -0.28], h: 0.8, toeR: 42, hipOff: [0, 0.07] }), spine: [6, -8, 0], shapeL: 'palm', shapeR: 'hook', face: [0, 0.3, 0.8, 0.5, 0.2] }),
+      { arm: [86, -2, -8], elbow: [12, -8], hand: [-66, 0, 0] }, { arm: [-40, 6, 22], elbow: [8, 0], hand: [80, 0, 0] }),
+  };
+  if (el === 'earth') return {
+    base: arms(pose({ stance: st({ L: [0.44, 0], R: [-0.44, 0], h: 0.7, toeL: 22, toeR: 22, knee: 0.8 }), pelvis: [8, 0], spine: [6, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0, 0, 0.5, 0.3, 0.4] }), 'pressDown'),
+    strike: arms(pose({ stance: st({ L: [0.44, 0], R: [-0.44, 0.02], h: 0.74, toeL: 22, toeR: 22, knee: 0.8 }), spine: [-4, 0, 0], chest: [-6, 0, 0], shapeL: 'claw', shapeR: 'claw', face: [0, 0.4, 1, 0.7, 0.6] }),
+      { arm: [70, -10, -60], elbow: [70, -60], hand: [-30, 0, 0] }),
+  };
+  if (el === 'fire') return {
+    base: arms(pose({ stance: st({ L: [0.16, 0.26], R: [-0.18, -0.24], h: 0.84, toeL: 6, toeR: 28, knee: 0.4 }), shapeL: 'fist', shapeR: 'fist', face: [0, 0, 0.8, 0.5, 0.5] }), 'chamber'),
+    strike: pose({ stance: st({ L: [0.16, 0.34], R: [-0.18, -0.24], h: 0.82, toeL: 6, toeR: 28, knee: 0.4 }), ikL: [0.06, 0.52, 0.8, 1], poleL: [0.7, -0.5, -0.2], elbowL: [0, -40], spine: [4, -10, 0], chest: [2, -6, 0],
+      armR: ARM.chamber.arm, elbowR: ARM.chamber.elbow, shapeL: 'fist', shapeR: 'fist', face: [0, 0.5, 1, 0.7, 0] }),
+  };
+  return {
+    base: pose({ stance: st({ L: [0.2, 0.06], R: [-0.18, -0.12], h: 0.84, toeR: 20, knee: 0.35 }), spine: [2, 14, 0], chest: [0, 10, 0],
+      armL: [46, 14, -45], elbowL: [30, -45], handL: [-42, 0, 0], armR: [100, -16, -35], elbowR: [88, -35], handR: [-30, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0.3, 0, 0.1, 0, 0] }),
+    strike: arms(pose({ stance: st({ L: [0.18, 0.46], R: [-0.2, -0.26], h: 0.8, toeR: 32, hipOff: [0, 0.08] }), spine: [8, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0, 0.4, 0.7, 0.4, 0] }),
+      { arm: [86, -8, -5], elbow: [8, -10], hand: [-72, 0, 0] }),
+  };
+}
+function yawToward(p) { return Math.atan2(p.x - FREE_ORIGIN[0], p.z - FREE_ORIGIN[1]) / DEG; }
+function enterFreePlay(el) {
+  if (TL.mode === 'cinematic') FREE.savedT = TL.T;
+  FREE.el = el;
+  // a calm moment of the film for the light: the dusk of the first act, nothing in flight
+  if (TL.mode === 'cinematic') { seekTo(6.9, 0.4); }
+  TL.mode = 'free'; TL.playing = true;
+  FREE.yaw = FREE.yawTarget = CHAR.pose.yaw || 0; FREE.strikeT = 9; FREE.casts.length = 0;
+  const P = freePoses(el, FREE.yaw); FREE.base = P.base; FREE.strike = P.strike;
+  if (CHAR.fig && CHAR.fig.playBase && CHAR.fig.useClips) CHAR.fig.playBase('stance') || CHAR.fig.playBase('idle');
+}
+function exitFreePlay() {
+  FREE.el = null; FREE.drag = null; FREE.casts.length = 0; FIELD.vortex.w = 0;
+  TL.mode = 'cinematic';
+  if (CHAR.fig && CHAR.fig.clipWeight) CHAR.fig.clipWeight = 0;
+  seekTo(FREE.savedT || 0, 1.2);
+}
+function freePlayPose(P, dt) {
+  if (!FREE.el) return;
+  // turn toward the latest target, then settle; strike envelope: snap out, hold, return
+  let dy = FREE.yawTarget - FREE.yaw; while (dy > 180) dy -= 360; while (dy < -180) dy += 360;
+  const turn = Math.abs(dy) > 0.5;
+  FREE.yaw += dy * (1 - Math.exp(-dt * 7));
+  if (turn || !FREE.base) { const Pp = freePoses(FREE.el, FREE.yaw); FREE.base = Pp.base; FREE.strike = Pp.strike; }
+  FREE.strikeT += dt;
+  const s = FREE.drag ? 1 : FREE.strikeT < 0.1 ? Ease.outCubic(FREE.strikeT / 0.1) : FREE.strikeT < 0.3 ? 1 : 1 - Ease.inOutSine(clamp((FREE.strikeT - 0.3) / 0.45));
+  lerpPoseInto(FREE.base, FREE.strike, s, P);
+  // gentle idle sway
+  P.hip[1] += Math.sin(simTime * 1.3) * 0.006;
+}
+
+// ---- casting -------------------------------------------------------------------------------------
+function freeTap(point, el = FREE.el, fromFilm = false) {
+  if (!el) return;
+  if (!fromFilm) { FREE.yawTarget = yawToward(point); FREE.strikeT = 0; }
+  const from = (fromFilm ? FIG.palms : FIG.palms).clone();
+  const now = simTime;
+  if (el === 'water') FREE.casts.push({ kind: 'water', from, to: point.clone(), t0: now + 0.06, dur: 0.38 });
+  else if (el === 'fire') FREE.casts.push({ kind: 'fire', p: from, v: point.clone().sub(from).normalize().multiplyScalar(19), to: point.clone(), t0: now + 0.05, life: 1.4, hit: false });
+  else if (el === 'earth') FREE.casts.push({ kind: 'earth', to: point.clone(), t0: now + 0.12, scale: 1 });
+  else FREE.casts.push({ kind: 'air', from, to: point.clone(), t0: now + 0.08 });
+  sfx(el === 'water' ? 'whoosh' : el === 'fire' ? 'fireball' : el === 'earth' ? 'tear' : 'gust', { pos: point, gain: 0.8 });
+}
+function freeDragStart(p) { if (!FREE.el) return; FREE.drag = { p: p.clone(), last: p.clone(), acc: 0 }; FREE.yawTarget = yawToward(p); }
+function freeDragMove(p) { if (!FREE.drag) return; FREE.drag.acc += FREE.drag.p.distanceTo(p); FREE.drag.p.copy(p); FREE.yawTarget = yawToward(p); }
+function freeDragEnd() { FREE.drag = null; FIELD.vortex.w = 0; FREE.strikeT = 0.3; }
+
+function spawnSpike(at, scale = 1) {
+  let m = FREE.spikes.find((s) => !s.mesh.visible);
+  if (!m) {
+    if (FREE.spikes.length >= 10) m = FREE.spikes.shift(); else {
+      const mesh = new THREE.Mesh(eruptGeometry(90 + FREE.spikes.length, 1.4), WORLD.stoneMat); mesh.castShadow = mesh.receiveShadow = true; world.add(mesh);
+      m = { mesh };
+    }
+    FREE.spikes.push(m);
+  }
+  const g = groundHeight(at.x, at.z);
+  Object.assign(m, { x: at.x, z: at.z, g, t0: simTime, s: scale, crumbled: false });
+  m.mesh.scale.set(scale * 0.55, scale, scale * 0.55); m.mesh.rotation.set((Math.random() - 0.5) * 0.25, Math.random() * TAU, (Math.random() - 0.5) * 0.25);
+  m.mesh.visible = true;
+  PS.smoke.emit({ count: 26 * scale, pos: V3(at.x, g + 0.05, at.z), radius: 0.4 * scale, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.4, 0), spread: 2.6, life: [1.2, 2.4], size: [0.15, 0.3], kind: 1, param: 0.5 });
+  PS.debris.emit({ count: 90 * scale, pos: V3(at.x, g + 0.05, at.z), radius: 0.45 * scale, vel: V3(0, 3, 0), spread: 1.8, life: [1.2, 2.2], size: [0.012, 0.03], kind: 0 });
+  addTrauma(0.15 * scale);
+}
+const _fa = V3(), _fb = V3();
+function waterArc(from, to, u, out) {
+  const mid = _fa.copy(from).lerp(to, 0.5); mid.y += 0.4 + from.distanceTo(to) * 0.18;
+  const a = 1 - u; return out.set(0, 0, 0).addScaledVector(from, a * a).addScaledVector(mid, 2 * a * u).addScaledVector(to, u * u);
+}
+function updateFree(T, dt) {
+  if (TL.mode !== 'free' && !FREE.casts.length) return;
+  const now = simTime;
+  for (const c of FREE.casts) {
+    const lt = now - c.t0; if (lt < 0) continue;
+    if (c.kind === 'water') {
+      const head = clamp(lt / c.dur), tail = clamp((lt - 0.22) / c.dur);
+      const from = FIG.palms;
+      for (let k = 0; k <= 24; k++) { const u = lerp(tail, head, k / 24); waterArc(from, c.to, u, _fb); ssfBlob(_fb, 0.075 * (0.6 + 0.4 * Math.sin(Math.PI * k / 24)), 0.2); }
+      if (head >= 1 && !c.done) {
+        c.done = true;
+        PS.debris.emit({ count: 160, pos: c.to, radius: 0.15, vel: V3(0, 2.4, 0), spread: 2.2, life: [0.4, 1.0], size: [0.006, 0.013], kind: 1 });
+        PS.smoke.emit({ count: 8, pos: c.to, radius: 0.2, vel: V3(0, 0.5, 0), spread: 0.4, life: [0.6, 1.2], size: [0.1, 0.2], kind: 2 });
+        paintMark(c.to.x, c.to.z, 0.9, 1, 0, 0, 0); poolDrop(c.to.x, c.to.z, 0.3, 0.02);
+        sfx('splash', { pos: c.to, gain: 0.8 });
+      }
+      if (tail >= 1) c.dead = true;
+    } else if (c.kind === 'fire') {
+      if (c.hit) { c.dead = true; continue; }
+      if (dt > 0) {
+        const last = c.p.clone(); c.p.addScaledVector(c.v, dt);
+        const seg = c.p.distanceTo(last);
+        PS.fire.emit({ count: seg * 80, pos: last, pos2: c.p, radius: 0.05, vel: _v1.copy(c.v).multiplyScalar(0.15), spread: 0.6, life: [0.18, 0.42], size: [0.05, 0.1], kind: 0, param: 0.9 });
+        PS.fire.emit({ count: seg * 36, pos: last, pos2: c.p, radius: 0.03, vel: _v1.copy(c.v).multiplyScalar(0.3), spread: 0.3, life: [0.08, 0.18], size: [0.04, 0.07], kind: 3 });
+        PS.smoke.emit({ count: seg * 3, pos: last, pos2: c.p, radius: 0.08, vel: V3(0, 0.5, 0), spread: 0.3, life: [1.0, 2.0], size: [0.08, 0.16], kind: 0, param: 0.8 });
+        if (c.p.distanceTo(c.to) < 0.4 || c.p.y < groundHeight(c.p.x, c.p.z) + 0.05 || lt > c.life) {
+          c.hit = true;
+          PS.fire.emit({ count: 220, pos: c.p, radius: 0.15, vel: V3(0, 1.4, 0), spread: 3.2, life: [0.3, 0.8], size: [0.1, 0.22], kind: 0, param: 1 });
+          PS.fire.emit({ count: 90, pos: c.p, radius: 0.1, vel: V3(0, 1, 0), spread: 5, life: [0.4, 0.9], size: [0.004, 0.009], kind: 2 });
+          PS.smoke.emit({ count: 20, pos: c.p, radius: 0.25, vel: V3(0, 0.9, 0), spread: 0.6, life: [1.8, 3.2], size: [0.2, 0.4], kind: 0, param: 1 });
+          paintMark(c.p.x, c.p.z, 0.6, 0, 0.65, 0.7, 0); addTrauma(0.12);
+          FIRE.flash = { p: c.p.clone(), t: TL.T }; c.flashT = now;
+          sfx('fireImpact', { pos: c.p, gain: 0.9 });
+        }
+      }
+      glow(c.p, 0.09, 14, 9, 4, 0.3);
+    } else if (c.kind === 'earth') {
+      if (!c.done) { c.done = true; spawnSpike(c.to, 1); sfx('erupt', { pos: c.to, gain: 0.6 }); }
+      c.dead = true;
+    } else if (c.kind === 'air') {
+      const k = clamp(lt / 0.9);
+      if (!c.done) {
+        c.done = true;
+        PS.smoke.emit({ count: 40, pos: c.to, radius: 0.3, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.3, 0), spread: 5, life: [0.8, 1.6], size: [0.15, 0.3], kind: 1, param: 0.3 });
+        PS.debris.emit({ count: 120, pos: c.from, pos2: c.to, radius: 0.3, vel: _v1.copy(c.to).sub(c.from).normalize().multiplyScalar(9), spread: 1.2, life: [0.5, 1.0], size: [0.04, 0.07], kind: 4, param: 0.8 });
+        FIELD.shock.set(c.to.x, c.to.y, c.to.z, 0); FIELD.shock2.set(0.6, 12, 0, 0); c.shock = true;
+        sfx('gust', { pos: c.to, gain: 0.9 });
+      }
+      if (c.shock) { FIELD.shock.w = k * 5; FIELD.shock2.y = 12 * (1 - k); }
+      distortSprite(_v1.copy(c.to).add(_v2.set(0, 0.6, 0)), 0.6 + k * 4, 0.05 * (1 - k), 1, 0.8, 0.25);
+      if (k >= 1) { c.dead = true; FIELD.shock2.y = 0; }
+    }
+  }
+  FREE.casts = FREE.casts.filter((c) => !c.dead);
+  // stone spikes: stand for a while, then crumble into rubble
+  for (const m of FREE.spikes) {
+    if (!m.mesh.visible) continue;
+    const lt = now - m.t0;
+    const rise = Ease.outBack(clamp(lt / 0.22));
+    const sink = smoothstep(2.6, 3.4, lt);
+    m.mesh.position.set(m.x, m.g - 1.4 * m.s + 1.3 * m.s * rise - 1.5 * m.s * sink, m.z);
+    if (lt > 2.6 && !m.crumbled) {
+      m.crumbled = true;
+      for (let k = 0; k < 7; k++) EARTH.rock.spawn({ pos: V3(m.x + (Math.random() - 0.5) * 0.4, m.g + 0.4 * m.s + Math.random() * 0.6 * m.s, m.z + (Math.random() - 0.5) * 0.4), vel: V3((Math.random() - 0.5) * 2, Math.random() * 1.5, (Math.random() - 0.5) * 2), scale: 0.05 + Math.random() * 0.08 * m.s, life: 7 });
+      PS.smoke.emit({ count: 14, pos: V3(m.x, m.g + 0.3, m.z), radius: 0.3, vel: V3(0, 0.3, 0), spread: 0.8, life: [1.2, 2.2], size: [0.15, 0.3], kind: 1, param: 0.5 });
+    }
+    if (lt > 3.5) m.mesh.visible = false;
+  }
+  // steering
+  const D = FREE.drag;
+  if (D && TL.mode === 'free') {
+    const from = FIG.palms, to = D.p;
+    if (FREE.el === 'water') {
+      for (let k = 0; k <= 30; k++) { const u = k / 30; waterArc(from, to, u, _fb); ssfBlob(_fb, 0.07 + 0.015 * Math.sin(u * 24 - now * 14), 0.25); }
+      if (dt > 0) { PS.debris.emit({ count: 90 * dt, pos: to, radius: 0.15, vel: V3(0, 1.8, 0), spread: 1.8, life: [0.4, 0.9], size: [0.006, 0.012], kind: 1 }); if (Math.random() < dt * 10) paintMark(to.x, to.z, 0.7, 1, 0, 0, 0); poolDrop(to.x, to.z, 0.2, 0.004); }
+    } else if (FREE.el === 'fire' && dt > 0) {
+      const d = _v3.copy(to).sub(from).normalize();
+      PS.fire.emit({ count: 2400 * dt, pos: from, radius: 0.08, vel: _v1.copy(d).multiplyScalar(13), spread: 1.5, life: [0.4, 0.8], size: [0.08, 0.18], kind: 0, param: 1 });
+      PS.fire.emit({ count: 500 * dt, pos: from, radius: 0.05, vel: _v1.copy(d).multiplyScalar(16), spread: 0.7, life: [0.16, 0.3], size: [0.05, 0.1], kind: 3 });
+      PS.smoke.emit({ count: 30 * dt, pos: to, radius: 0.6, vel: V3(0, 1.4, 0), spread: 0.8, life: [1.5, 3], size: [0.3, 0.6], kind: 0, param: 1 });
+      if (Math.random() < dt * 20) paintMark(to.x, to.z, 0.5, 0, 0.5, 0.5, 0);
+    } else if (FREE.el === 'earth' && D.acc > 0.45) { D.acc = 0; spawnSpike(to, 0.55); }
+    else if (FREE.el === 'air') {
+      FIELD.vortex.set(to.x, to.z, 1.4, 1); FIELD.vortex2.set(7, 1.2, 2.5, 4); FIELD.vortexY = groundHeight(to.x, to.z);
+      if (dt > 0) {
+        PS.debris.emit({ count: 140 * dt, pos: V3(to.x, FIELD.vortexY + 0.2, to.z), radius: 1.3, vel: V3(0, 0.5, 0), spread: 0.5, life: [0.8, 1.6], size: [0.05, 0.08], kind: 4, param: 0.7 });
+        PS.smoke.emit({ count: 20 * dt, pos: V3(to.x, FIELD.vortexY + 0.1, to.z), radius: 1.2, vel: V3(0, 0.3, 0), spread: 0.6, life: [1.2, 2.2], size: [0.2, 0.35], kind: 1, param: 0.3 });
+      }
+      distortSprite(_v1.set(to.x, FIELD.vortexY + 1.0, to.z), 1.5, 0.03, 2, 0, 0);
+    }
+  }
+}
+fxModule({
+  update(T, dt) { updateFree(T, dt); },
+  reset() { for (const m of FREE.spikes) m.mesh.visible = false; },
+  lights() {
+    for (const c of FREE.casts) if (c.kind === 'fire' && !c.hit) requestLight(c.p, FIRE_COL, 2.2, 4, 12);
+    if (FREE.drag && FREE.el === 'fire') requestLight(_v1.copy(FIG.palms).lerp(FREE.drag.p, 0.4), FIRE_COL, 8, 6, 16);
+  },
+});
+
+// ---- 22-ui.js ----
+// §22 UI & INPUT — control bar, scrubber with act markers, chapter slates, element free-play,
+// orbit camera, character loading (file · drop · URL), quality, sound, keys, idle-hide,
+// and adaptive quality that holds the frame rate by trading resolution first.
+const UI = { el: {}, idle: 0, lastAct: -1, scrubbing: false, chapterT: 0, toastT: 0, pointer: null, lastMove: 0 };
+const $ = (id) => document.getElementById(id);
+function fmtTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return `${String(m).padStart(2, '0')}:${s.toFixed(1).padStart(4, '0')}`; }
+function toast(msg, secs = 3) { const t = UI.el.toast; t.textContent = msg; t.hidden = false; UI.toastT = secs; }
+function showChapter(i) {
+  const a = ACTS[i]; if (!a) return;
+  UI.el.chapter.querySelector('.num').textContent = a.num;
+  UI.el.chapter.querySelector('.name').textContent = a.name;
+  UI.el.chapter.style.setProperty('--accent', a.color);
+  UI.el.chapter.classList.add('show'); UI.chapterT = 3.2;
+}
+
+// ---- orbit camera -------------------------------------------------------------------------------
+function makeOrbit() {
+  const c = new OrbitControls(camera, renderer.domElement);
+  c.enableDamping = true; c.dampingFactor = 0.08; c.minDistance = 1.2; c.maxDistance = 40; c.maxPolarAngle = Math.PI * 0.495;
+  c.target.set(0, 1.0, 0); c.enabled = false; c.enablePan = true;
+  ORBIT.controls = c;
+  ORBIT.update = (dt) => {
+    // keep the target near the figure when it moves (air lift), without fighting the user
+    const h = CAM.anchors.hips; if (h) c.target.lerp(_v1.set(h.x, Math.max(0.9, h.y), h.z), 1 - Math.exp(-dt * 1.5));
+    c.update(dt);
+    camera.near = 0.06; camera.far = 9000; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
+    POST.grade.aperture = 0; POST.grade.focus = camera.position.distanceTo(c.target);
+  };
+}
+function setOrbit(on) {
+  ORBIT.active = on; if (ORBIT.controls) ORBIT.controls.enabled = on;
+  UI.el.cam.setAttribute('aria-pressed', String(on)); document.body.classList.toggle('orbit', on);
+  if (on) { POST.cut = true; const h = CAM.anchors.hips || V3(0, 1, 0); ORBIT.controls.target.set(h.x, Math.max(0.9, h.y), h.z); }
+  else { CAM.first = true; CAM.shotIndex = -1; }
+}
+
+// ---- modes ----------------------------------------------------------------------------------------
+function setPlaying(p) {
+  TL.playing = p; UI.el.play.classList.toggle('paused', !p);
+  UI.el.play.setAttribute('aria-label', p ? 'Pause' : 'Play');
+}
+function selectElement(el) {
+  const cur = TL.mode === 'free' ? FREE.el : null;
+  const next = cur === el ? null : el;
+  for (const b of document.querySelectorAll('.el')) b.setAttribute('aria-pressed', String(b.dataset.el === next));
+  if (next) {
+    if (typeof enterFreePlay === 'function') enterFreePlay(next);
+    if (!ORBIT.active) setOrbit(true);
+    UI.el.hint.textContent = FREE_HINTS[next]; UI.el.hint.hidden = false;
+    document.body.classList.add('freeplay');
+  } else {
+    if (typeof exitFreePlay === 'function') exitFreePlay();
+    UI.el.hint.hidden = true; document.body.classList.remove('freeplay');
+    if (ORBIT.active) setOrbit(false);
+  }
+}
+const FREE_HINTS = {
+  water: 'Water · tap to lash a stream · drag to steer it',
+  earth: 'Earth · tap to raise stone · drag to rake the ground',
+  fire: 'Fire · tap to throw fire · drag to pour a torrent',
+  air: 'Air · tap for a gust · drag to spin a vortex',
+};
+
+// ---- quality --------------------------------------------------------------------------------------
+function setQuality(name, persist = true) {
+  if (!QUALITY[name]) return;
+  tierName = name; const prev = Q;
+  Q = { ...QUALITY[name] };
+  // things that can change live; particle texture sizes and bake resolutions keep their boot values
+  Q.particleTex = prev.particleTex; Q.texSize = prev.texSize;
+  VIEW.dynScale = 1;
+  if (LIGHTS.key.shadow.mapSize.x !== Q.shadow) { LIGHTS.key.shadow.mapSize.set(Q.shadow, Q.shadow); if (LIGHTS.key.shadow.map) { LIGHTS.key.shadow.map.dispose(); LIGHTS.key.shadow.map = null; } }
+  const samples = Math.min(Q.msaa, CAPS.maxSamples);
+  if (POST.sceneRT.samples !== samples) { POST.sceneRT.samples = samples; POST.sceneRT.dispose(); }
+  if (Q.reflect > 0 && !POOL.reflRT) POOL.reflRT = makeRT(8, 8, { depthBuffer: true });
+  applySize();
+  UI.el.quality.value = name;
+  if (persist) try { localStorage.setItem('stillpoint.quality', name); } catch (e) { /* private mode */ }
+}
+// Adaptive quality: hold ~60 fps on desktop, ~30+ on phones. Resolution goes first (cheap to
+// restore), then particle density, then the expensive passes; recovery walks back up slowly.
+const ADAPT = { ema: 1 / 60, cool: 2, good: 0, level: 0, target: IS_MOBILE ? 1 / 32 : 1 / 57 };
+function adaptQuality(dt) {
+  if (FLAGS.noAdapt || !TL || document.hidden) return;
+  ADAPT.ema += (Math.min(dt, 0.25) - ADAPT.ema) * 0.05;
+  ADAPT.cool -= dt; if (ADAPT.cool > 0) return;
+  const slow = ADAPT.ema > ADAPT.target * 1.12, fast = ADAPT.ema < ADAPT.target * 0.8;
+  if (slow) {
+    ADAPT.good = 0;
+    if (VIEW.dynScale > 0.62) { VIEW.dynScale = Math.max(0.6, VIEW.dynScale - 0.1); applySize(); }
+    else if (VIEW_PSCALE > 0.5) VIEW_PSCALE -= 0.25;
+    else if (Q.ao || Q.mblur || Q.dof) { if (Q.ao) Q.ao = false; else if (Q.mblur) Q.mblur = false; else Q.dof = false; }
+    else if (Q.cloudSteps > 16) Q.cloudSteps = Math.max(16, Q.cloudSteps - 8);
+    ADAPT.cool = 1.2;
+  } else if (fast) {
+    ADAPT.good += 1;
+    if (ADAPT.good > 3) {
+      if (VIEW_PSCALE < 1) VIEW_PSCALE = Math.min(1, VIEW_PSCALE + 0.25);
+      else if (VIEW.dynScale < 1) { VIEW.dynScale = Math.min(1, VIEW.dynScale + 0.1); applySize(); }
+      ADAPT.good = 0;
+    }
+    ADAPT.cool = 2.5;
+  } else ADAPT.cool = 1;
+}
+
+// ---- character loading ------------------------------------------------------------------------------
+function charStatus(msg) { UI.el.status.textContent = msg; }
+async function loadCharacterBuffer(buf, label) {
+  charStatus('Loading ' + label + '…');
+  try {
+    const fig = await parseGLB(buf, label);
+    fig.useClips = UI.el.clips.checked;
+    await setFigure(fig);
+    seekTo(TL.T, 1.0);
+    charStatus('Currently: ' + label + (fig.clipNames && fig.clipNames.length ? ` · clips: ${fig.clipNames.join(', ')}` : ''));
+    toast('Character loaded — the choreography is retargeted onto it');
+  } catch (e) {
+    console.warn(e);
+    charStatus('Could not use that file: ' + (e && e.message ? e.message : e));
+    toast('That model could not be retargeted — ' + (e && e.message ? e.message : 'unknown error'), 5);
+  }
+}
+async function loadCharacterURL(url) {
+  try {
+    const r = await fetch(url, { mode: 'cors' }); if (!r.ok) throw new Error('HTTP ' + r.status);
+    await loadCharacterBuffer(await r.arrayBuffer(), url.split('/').pop().split('?')[0] || 'model.glb');
+  } catch (e) { charStatus('Could not fetch that URL (' + e.message + '). The server must allow cross-origin requests.'); }
+}
+
+// ---- pointer → world --------------------------------------------------------------------------------
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2();
+function pointerWorld(ev, out = V3()) {
+  const r = renderer.domElement.getBoundingClientRect();
+  _ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  // march the ground height field, then fall back to a plane at chest height
+  const o = _ray.ray.origin, d = _ray.ray.direction;
+  let t = 0.3, prevAbove = true;
+  for (let i = 0; i < 160; i++) {
+    const p = _v1.copy(o).addScaledVector(d, t);
+    if (p.y < groundHeight(p.x, p.z)) {
+      let a = t - (i ? 0.25 : 0.3), b = t;
+      for (let k = 0; k < 10; k++) { const m = (a + b) / 2; const q = _v2.copy(o).addScaledVector(d, m); if (q.y < groundHeight(q.x, q.z)) b = m; else a = m; }
+      return out.copy(o).addScaledVector(d, b);
+    }
+    t += 0.25; if (t > 40) break;
+  }
+  const k = d.y < -0.01 ? (1.2 - o.y) / d.y : 12;
+  return out.copy(o).addScaledVector(d, Math.min(Math.max(k, 2), 30));
+}
+
+// ---- init -------------------------------------------------------------------------------------------
+function initUI() {
+  const E = UI.el = { bar: $('bar'), play: $('bPlay'), tc: $('tc'), scrub: $('scrubber'), acts: $('acts'), cam: $('bCam'), sound: $('bSound'), quality: $('quality'),
+    char: $('bChar'), panel: $('charpanel'), chapter: $('chapter'), hint: $('hint'), toast: $('toast'), drop: $('drop'), file: $('glbFile'), url: $('glbUrl'),
+    load: $('glbLoad'), reset: $('glbReset'), clips: $('useClips'), status: $('charStatus'), close: $('charClose') };
+  for (const a of ACTS) {
+    const d = document.createElement('div'); d.className = 'a';
+    d.style.left = (a.t0 / DURATION * 100) + '%'; d.style.width = ((a.t1 - a.t0) / DURATION * 100) + '%';
+    d.innerHTML = `<span>${a.num} · ${a.name}</span>`; d.title = `${a.num}. ${a.name}`; E.acts.appendChild(d);
+  }
+  makeOrbit();
+  E.quality.value = tierName;
+  charStatus('Currently: ' + (CHAR.fig && CHAR.fig.info ? CHAR.fig.info : 'procedural figure') + '.');
+  document.body.classList.add('bar-on');
+
+  E.play.addEventListener('click', () => { if (TL.mode !== 'cinematic') selectElement(FREE.el); setPlaying(!TL.playing); });
+  // scrubbing: cheap preview seeks while dragging, a settled seek on release
+  let pendingSeek = null, seekRaf = 0;
+  const doSeek = () => { seekRaf = 0; if (pendingSeek == null) return; const t = pendingSeek; pendingSeek = null; seekTo(t, UI.scrubbing ? 0.35 : 1.5); };
+  E.scrub.addEventListener('input', () => {
+    UI.scrubbing = true; if (TL.mode !== 'cinematic') selectElement(FREE.el);
+    pendingSeek = +E.scrub.value; if (!seekRaf) seekRaf = requestAnimationFrame(doSeek);
+  });
+  E.scrub.addEventListener('change', () => { UI.scrubbing = false; pendingSeek = +E.scrub.value; doSeek(); });
+  for (const b of document.querySelectorAll('.el')) b.addEventListener('click', () => selectElement(b.dataset.el));
+  E.cam.addEventListener('click', () => setOrbit(!ORBIT.active));
+  E.sound.addEventListener('click', () => {
+    const on = E.sound.getAttribute('aria-pressed') !== 'true';
+    if (typeof setSound === 'function') setSound(on);
+    E.sound.setAttribute('aria-pressed', String(on)); E.sound.setAttribute('aria-label', on ? 'Turn sound off' : 'Turn sound on');
+  });
+  E.quality.addEventListener('change', () => setQuality(E.quality.value));
+  const togglePanel = (show = E.panel.hidden) => { E.panel.hidden = !show; E.char.setAttribute('aria-expanded', String(show)); };
+  E.char.addEventListener('click', () => togglePanel());
+  E.close.addEventListener('click', () => togglePanel(false));
+  E.file.addEventListener('change', async () => { const f = E.file.files && E.file.files[0]; if (f) await loadCharacterBuffer(await f.arrayBuffer(), f.name); E.file.value = ''; });
+  E.load.addEventListener('click', () => { const u = E.url.value.trim(); if (u) loadCharacterURL(u); });
+  E.url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); E.load.click(); } });
+  E.reset.addEventListener('click', async () => { charStatus('Restoring the default figure…'); await loadDefaultFigure(); seekTo(TL.T, 1.0); charStatus('Currently: ' + (CHAR.fig.info || 'procedural figure') + '.'); });
+  E.clips.addEventListener('change', () => { if (CHAR.fig) CHAR.fig.useClips = E.clips.checked; });
+  // drag & drop a .glb anywhere
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { dragDepth++; E.drop.hidden = false; e.preventDefault(); } });
+  window.addEventListener('dragover', (e) => { if (!E.drop.hidden) e.preventDefault(); });
+  window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) E.drop.hidden = true; });
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault(); dragDepth = 0; E.drop.hidden = true;
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f && /\.(glb|gltf)$/i.test(f.name)) await loadCharacterBuffer(await f.arrayBuffer(), f.name);
+    else if (f) toast('Drop a binary glTF (.glb) character');
+  });
+  // pointer on the canvas: tap casts, drag steers (free play); anything wakes the bar
+  const cv = renderer.domElement;
+  let down = null;
+  cv.addEventListener('pointerdown', (e) => {
+    down = { x: e.clientX, y: e.clientY, t: performance.now(), drag: false, id: e.pointerId };
+    if (TL.mode === 'free' && typeof freeDragStart === 'function' && !e.shiftKey) { /* decided on move */ }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    wake();
+    if (!down || down.id !== e.pointerId) return;
+    const dx = e.clientX - down.x, dy = e.clientY - down.y;
+    if (!down.drag && dx * dx + dy * dy > 64 && TL.mode === 'free' && !e.shiftKey && !ORBIT.userOrbiting) {
+      down.drag = true; if (ORBIT.controls) ORBIT.controls.enabled = false;
+      if (typeof freeDragStart === 'function') freeDragStart(pointerWorld(e));
+    }
+    if (down.drag && typeof freeDragMove === 'function') freeDragMove(pointerWorld(e));
+  });
+  const up = (e) => {
+    if (!down || down.id !== e.pointerId) return;
+    const quick = performance.now() - down.t < 350 && !down.drag;
+    if (down.drag) { if (typeof freeDragEnd === 'function') freeDragEnd(); if (ORBIT.controls) ORBIT.controls.enabled = ORBIT.active; }
+    else if (quick) {
+      const p = pointerWorld(e);
+      if (TL.mode === 'free' && typeof freeTap === 'function') freeTap(p);
+      else if (TL.mode === 'cinematic' && !ORBIT.active) {
+        // a tap during the film casts the current act's element into the scene
+        const el = ACTS[actAt(TL.T)].el || 'air';
+        if (typeof freeTap === 'function') freeTap(p, el, true);
+      }
+    }
+    down = null;
+  };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  window.addEventListener('pointermove', wake, { passive: true });
+  window.addEventListener('keydown', (e) => {
+    if (e.target && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    wake();
+    const k = e.key.toLowerCase();
+    if (k === ' ') { e.preventDefault(); E.play.click(); }
+    else if (k === 'arrowright' || k === 'arrowleft') { e.preventDefault(); if (TL.mode !== 'cinematic') selectElement(FREE.el); seekTo((TL.T + (k === 'arrowright' ? 5 : -5) + DURATION) % DURATION, 1.2); }
+    else if (k >= '1' && k <= '4') selectElement(['water', 'earth', 'fire', 'air'][+k - 1]);
+    else if (k === 'escape' || k === '0') { if (!E.panel.hidden) togglePanel(false); else if (TL.mode !== 'cinematic') selectElement(FREE.el); }
+    else if (k === 'o') setOrbit(!ORBIT.active);
+    else if (k === 'm') E.sound.click();
+    else if (k === 'c') togglePanel();
+  });
+  document.addEventListener('visibilitychange', () => { lastNow = performance.now(); });
+  // saved quality choice
+  try { const q = localStorage.getItem('stillpoint.quality'); if (q && QUALITY[q] && !FLAGS.quality) setQuality(q, false); } catch (e) { /* ignore */ }
+  if (REDUCED_MOTION) toast('Reduced motion: camera shake, flashes and chromatic aberration are off', 4);
+  showChapter(actAt(TL.T));
+}
+function wake() { UI.idle = 0; document.body.classList.remove('idle'); }
+
+function updateUI() {
+  const E = UI.el; if (!E.scrub) return;
+  const dt = Math.min(0.1, U.uRealTime.value - (UI.lastRT || 0)); UI.lastRT = U.uRealTime.value;
+  if (!UI.scrubbing) { E.scrub.value = TL.T.toFixed(2); }
+  E.scrub.style.setProperty('--p', (TL.T / DURATION * 100).toFixed(2) + '%');
+  E.tc.textContent = TL.mode === 'free' ? 'free play' : fmtTime(TL.T);
+  const ai = actAt(TL.T);
+  if (ai !== UI.lastAct) {
+    UI.lastAct = ai;
+    [...E.acts.children].forEach((d, i) => d.classList.toggle('cur', i === ai));
+    for (const b of document.querySelectorAll('.el')) b.classList.toggle('cur', b.dataset.el === ACTS[ai].el);
+    if (TL.mode === 'cinematic' && TL.playing) showChapter(ai);
+  }
+  if (UI.chapterT > 0) { UI.chapterT -= dt; if (UI.chapterT <= 0) E.chapter.classList.remove('show'); }
+  if (UI.toastT > 0) { UI.toastT -= dt; if (UI.toastT <= 0) E.toast.hidden = true; }
+  UI.idle += dt;
+  if (UI.idle > 2.8 && E.panel.hidden && !document.body.classList.contains('idle')) document.body.classList.add('idle');
+  document.body.classList.toggle('bar-on', !document.body.classList.contains('idle'));
+  const bh = E.bar.offsetHeight; if (bh !== UI.barH) { UI.barH = bh; document.documentElement.style.setProperty('--barh', bh + 'px'); }
+}
+
 // ---- 23-main.js ----
 // §23 MAIN — boot, resize, simulation/presentation loop, adaptive quality ----------------------
 const loaderEl = document.getElementById('loader');
@@ -6728,8 +7563,8 @@ function simulate(dtSim) {
 function present(dtReal) {
   U.uRealTime.value += dtReal;
   updateSkyState(); renderSkyTexture(); updateEnvironment();
-  if (TL.mode === 'cinematic' || !ORBIT.active) updateCamera(TL.mode === 'cinematic' ? TL.T : FREE_T, dtReal);
-  else ORBIT.update(dtReal);
+  if (ORBIT.active) { refreshAnchors(); ORBIT.update(dtReal); }
+  else updateCamera(TL.T, dtReal);
   if (FLAGS.capture) debugCameraOverride();
   updateKeyLight(CAM.anchors.hips || V3(0, 1, 0));
   if (typeof collectLights === 'function') collectLights();
@@ -6737,10 +7572,12 @@ function present(dtReal) {
   if (typeof updateAudio === 'function') updateAudio(dtReal);
   if (typeof updateUI === 'function') updateUI();
   if (typeof presentFX === 'function') presentFX(dtReal);
+  // impact accents: flashes decay in real time; chromatic fringing rides the camera trauma
+  POST.grade.flash *= Math.exp(-dtReal * 5.5); if (POST.grade.flash < 0.002) POST.grade.flash = 0;
+  POST.grade.ca = REDUCED_MOTION ? 0 : Math.min(0.014, TL.trauma * TL.trauma * 0.02);
   renderFrame(dtReal);
 }
-const FREE_T = 6.9;
-const ORBIT = { active: false, update() {} };
+const ORBIT = { active: false, controls: null, update() {} };
 
 function seekTo(T, preroll = 2.2) {
   tlSeek(T, { preroll, step: 1 / 30, stepFn: (dt) => simulate(dt) });

@@ -5,6 +5,8 @@
 const FXS = { list: [] };
 function fxModule(m) { FXS.list.push(m); return m; }
 function sfx(name, o) { if (!TL.preroll && typeof playSfx === 'function') playSfx(name, o || {}); }
+// full-frame flash: live playback only (never baked in by a seek's pre-roll)
+function flashFrame(amount, r = 1, g = 1, b = 1) { if (TL.preroll) return; POST.grade.flash = Math.max(POST.grade.flash, amount); POST.grade.flashColor.setRGB(r, g, b); }
 const PS = { fire: null, smoke: null, debris: null };
 
 // ---- figure probes: world positions and velocities of the joints the elements follow ----------

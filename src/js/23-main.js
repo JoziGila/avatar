@@ -105,8 +105,8 @@ function simulate(dtSim) {
 function present(dtReal) {
   U.uRealTime.value += dtReal;
   updateSkyState(); renderSkyTexture(); updateEnvironment();
-  if (TL.mode === 'cinematic' || !ORBIT.active) updateCamera(TL.mode === 'cinematic' ? TL.T : FREE_T, dtReal);
-  else ORBIT.update(dtReal);
+  if (ORBIT.active) { refreshAnchors(); ORBIT.update(dtReal); }
+  else updateCamera(TL.T, dtReal);
   if (FLAGS.capture) debugCameraOverride();
   updateKeyLight(CAM.anchors.hips || V3(0, 1, 0));
   if (typeof collectLights === 'function') collectLights();
@@ -114,10 +114,12 @@ function present(dtReal) {
   if (typeof updateAudio === 'function') updateAudio(dtReal);
   if (typeof updateUI === 'function') updateUI();
   if (typeof presentFX === 'function') presentFX(dtReal);
+  // impact accents: flashes decay in real time; chromatic fringing rides the camera trauma
+  POST.grade.flash *= Math.exp(-dtReal * 5.5); if (POST.grade.flash < 0.002) POST.grade.flash = 0;
+  POST.grade.ca = REDUCED_MOTION ? 0 : Math.min(0.014, TL.trauma * TL.trauma * 0.02);
   renderFrame(dtReal);
 }
-const FREE_T = 6.9;
-const ORBIT = { active: false, update() {} };
+const ORBIT = { active: false, controls: null, update() {} };
 
 function seekTo(T, preroll = 2.2) {
   tlSeek(T, { preroll, step: 1 / 30, stepFn: (dt) => simulate(dt) });

@@ -80,5 +80,5 @@ function tlSeek(T, { preroll = 2.5, step = 1 / 30, stepFn = null } = {}) {
   }
   TL.T = T;
   TL.preroll = false; TL.hitStop = 0; TL.trauma = 0;
-  POST.cut = true;
+  POST.cut = true; POST.grade.flash = 0;
 }
