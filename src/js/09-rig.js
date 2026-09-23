@@ -802,10 +802,21 @@ function makeProceduralSkinMaterial() {
 }
 
 // --- loading -----------------------------------------------------------------------------------------
+function glbUses(buffer, ext) {
+  // peek at the JSON chunk of a binary glTF without parsing the whole file
+  try {
+    const dv = new DataView(buffer); if (dv.getUint32(0, true) !== 0x46546c67) return new TextDecoder().decode(new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 200000))).includes(ext);
+    const len = dv.getUint32(12, true); return new TextDecoder().decode(new Uint8Array(buffer, 20, len)).includes(ext);
+  } catch (e) { return false; }
+}
 async function parseGLB(buffer, label) {
-  const { MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js');
   const loader = new GLTFLoader();
-  loader.setMeshoptDecoder(MeshoptDecoder);
+  // the meshopt decoder is WebAssembly: load it only for files that need it
+  if (glbUses(buffer, 'EXT_meshopt_compression')) {
+    const { MeshoptDecoder } = await import('three/addons/libs/meshopt_decoder.module.js');
+    loader.setMeshoptDecoder(MeshoptDecoder);
+  }
+  if (glbUses(buffer, 'KHR_draco_mesh_compression')) throw new Error('Draco-compressed models are not supported here — export without Draco (meshopt or plain glTF works).');
   // use <img> decoding for embedded textures: works in sandboxed hosts where fetch(blob:) may be blocked
   loader.register((parser) => { parser.textureLoader = new THREE.TextureLoader(parser.options.manager); return { name: 'sp_img_textures' }; });
   const gltf = await loader.parseAsync(buffer, '');
