@@ -106,12 +106,12 @@ function initSky() {
       vec3 p = d * scale; vec3 base = floor(p - 0.5); vec3 col = vec3(0.0);
       for (int k = 0; k < 2; k++) for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++){
         vec3 c = base + vec3(float(i), float(j), float(k));
-        vec4 h = sp_hash41(dot(c, vec3(1.0, 57.0, 113.0)) + scale * 1.618);
+        vec4 h = vec4(sp_hash33(c * 0.7131 + scale * 1.618), sp_hash13(c * 1.3173 - scale));   // true 3D hash: no lattice rows
         if (h.x > density) continue;
         vec3 sp = normalize(c + 0.25 + 0.5 * h.yzw);
-        float ang = acos(clamp(dot(sp, d), -1.0, 1.0));
+        float ang = length(sp - d);            // chord ≈ angle; acos loses all precision at star scale
         float w = pix * 0.85;
-        float mag = pow(h.y, 7.0) * 4.0 + 0.06;
+        float mag = pow(h.y, 6.0) * 3.2 + 0.015;
         float twk = 0.7 + 0.3 * sin(uTime * (2.0 + 9.0 * h.z) + h.w * 40.0) * smoothstep(0.5, 0.0, d.y);
         vec3 tint = mix(vec3(0.66, 0.78, 1.0), vec3(1.0, 0.8, 0.58), smoothstep(0.3, 1.0, h.z));
         col += tint * mag * twk * exp(-ang * ang / (w * w));
@@ -136,14 +136,16 @@ function initSky() {
       float skyL = sp_luma(col);
       float vis = uStarVis * smoothstep(-0.02, 0.18, rd.y) * clamp(1.0 - skyL * 8.0, 0.0, 1.0);
       if (vis > 0.001){
-        vec3 s = starLayer(rd, 90.0, 0.5, pix) + starLayer(rd, 210.0, 0.35, pix) * 0.55 + starLayer(rd, 480.0, 0.3, pix) * 0.3;
+        // sparse bright stars, a thinner middle layer, and a faint dusting concentrated in the milky way
+        vec3 mwN0 = normalize(vec3(0.35, 0.55, 0.76)); float inBand = exp(-pow(dot(rd, mwN0) / 0.3, 2.0));
+        vec3 s = starLayer(rd, 70.0, 0.05, pix) + starLayer(rd, 150.0, 0.035, pix) * 0.5 + starLayer(rd, 300.0, 0.012 + 0.05 * inBand, pix) * 0.3;
         // milky way band: great circle tilted across the sky
         vec3 mwN = normalize(vec3(0.35, 0.55, 0.76));
         float band = exp(-pow(dot(rd, mwN) / 0.23, 2.0));
         float neb = sp_fbm3(rd * 6.0) * 0.8 + sp_fbm3(rd * 17.0) * 0.4;
         float dust = smoothstep(0.45, 0.75, sp_fbm3(rd * 11.0 + 3.0)) * exp(-pow(dot(rd, mwN) / 0.06, 2.0));
         vec3 mw = vec3(0.020, 0.022, 0.030) * band * neb * (1.0 - 0.8 * dust) * uMilky;
-        col += (s * 0.35 + mw) * vis;
+        col += (s * 0.5 + mw) * vis;
       }
       // moon
       float cm = dot(rd, uMoonDir); float moonR = 0.0085;

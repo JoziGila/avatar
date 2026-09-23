@@ -12,6 +12,7 @@ const LOC = {
   erupt: V3(LAYOUT.eruptPillar.x, 0, LAYOUT.eruptPillar.z),
 };
 const yawTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z) / DEG;
+const AIR_WALK = { c: [0.9, 0.05], R: 0.9, t0: 47.25, t1: 51.45, steps: 12 };   // Baguazhang circle (Act V)
 const YAW = { pool: yawTo(V3(), LOC.pool), P1: yawTo(V3(), LOC.P1), earth: 180, fire: -72 };
 
 // body-frame (x left, z forward) → world, for a figure standing at `o` with facing yaw°
@@ -118,17 +119,19 @@ function buildChoreography() {
     footR: [-0.14, 0.34, 0.07, -6, 0], kneeR: [-0.1, 0.3, 1] }, kneel), 'inOutSine');
   key(3.95, pose({ hip: [0.02, 0.6, 0.06], pelvis: [26, 0], spine: [18, 0, 0], footR: [-0.14, 0.38, 0, -8, 0], kneeR: [-0.1, 0.4, 1],
     armL: [30, -60, 8], armR: [40, -58, 10], elbowL: [40, 20], elbowR: [55, 20] }, kneel), 'inOutQuad');
-  // stand (pushing through the front foot), left foot comes to meet it
-  key(4.75, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.12, 0.0], R: [-0.14, 0.24], h: 0.93, toeL: 8, toeR: 6 }, pelvis: [2, 0], spine: [3, 0, 0], neck: [2, 0, 0], head: [2, 0, 0],
-    face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'palmsUpLow'), 'heavy');
-  // inhale: palms rise
-  key(5.2, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.12, 0.0], R: [-0.14, 0.24], h: 0.95 }, chest: [-4, 0, 0], head: [-3, 0, 0], face: [0.8, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }), 'palmsUpHigh'), 'inOutSine');
-  // left foot steps out into the horse stance
-  key(5.45, arms(pose({ stance: { o: [-0.06, 0.12], yaw: 0, L: [0.18, 0.02], R: [-0.14, 0.12], h: 0.92, liftL: 0.1, heelL: 0.2, hipOff: [-0.08, 0] }, face: [0.8, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }), 'palmsUpHigh'), 'inOutSine');
-  const horse = arms(pose({ stance: { o: [0.12, 0.12], yaw: 0, L: [0.38, 0.0], R: [-0.4, 0.0], h: 0.72, toeL: 16, toeR: 16, knee: 0.7 }, pelvis: [6, 0], spine: [2, 0, 0], neck: [4, 0, 0], head: [4, 0, 0],
-    face: [0.8, 0, 0.1, 0, 0], shapeL: 'palm', shapeR: 'palm' }), 'pressDown');
-  key(5.75, pose({ hip: [0.12, 0.84, 0.12] }, horse), 'inOutSine');
-  key(6.45, horse, 'heavy');                                                  // exhale: palms press, pebbles tremble
+  // stand (pushing through the front foot) and bring the feet together: the scroll's first figure
+  key(4.75, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.085, 0.02], R: [-0.085, 0.02], h: 0.95, toeL: 6, toeR: 6 }, pelvis: [2, 0], spine: [2, 0, 0], neck: [2, 0, 0], head: [2, 0, 0],
+    face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'heavy');
+  // commencing form of the 24-step form: weight settles right, the left foot steps out to shoulder width
+  key(5.05, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.15, 0.02], R: [-0.085, 0.02], h: 0.94, liftL: 0.045, hipOff: [-0.06, 0] }, face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'inOutSine');
+  const open = pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.17, 0.02], R: [-0.17, 0.02], h: 0.95, toeL: 8, toeR: 8 }, face: [0.8, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' });
+  key(5.3, arms(pose({}, open), 'down'), 'inOutSine');
+  // inhale: the arms float up to shoulder height, palms down, wrists soft, as if lifted by water
+  key(5.95, arms(pose({ chest: [-3, 0, 0], head: [-2, 0, 0], shapeL: 'relax', shapeR: 'relax', face: [0.75, 0, 0, 0, 0] }, open), { arm: [82, -6, 0], elbow: [16, 0], hand: [14, 0, 0] }), 'inOutSine');
+  // exhale: sink, and the palms press down to the waist — the pebbles tremble
+  const horse = arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.21, 0.02], R: [-0.21, 0.02], h: 0.83, toeL: 10, toeR: 10, knee: 0.45 }, pelvis: [5, 0], spine: [2, 0, 0], neck: [2, 0, 0],
+    face: [0.8, 0, 0.1, 0, 0], shapeL: 'palm', shapeR: 'palm' }), { arm: [55, -50, 0], elbow: [42, 0], hand: [-62, 0, 0] });
+  key(6.5, horse, 'heavy');
   key(6.95, pose({ head: [-2, 0, 0], neck: [0, 0, 0], face: [0, 0, 0.2, 0.15, 0.2] }, horse), 'inOutSine'); // eyes open
 
   // ---------------------------------------------------------------- ACT II · WATER (7–20)
@@ -144,8 +147,9 @@ function buildChoreography() {
   // slow upward sweep: palms rise, the pool bulges and the column climbs
   key(9.6, arms(pose({ hip: [bowPool.hip[0], 0.86, bowPool.hip[2]], chest: [-6, 0, 0], head: [-10, 0, 0], shapeL: 'open', shapeR: 'open', look: [LOC.pool.x * 0.6, 2.4, LOC.pool.z * 0.6, 0.6] }, bowPool), 'palmsUpHigh'), 'inOutSine');
   // draw the water in: hands come to the chest, weight shifts back
-  key(10.4, arms(pose({ hip: [bowPool.hip[0] - Math.sin(pY * DEG) * 0.12, 0.84, bowPool.hip[2] - Math.cos(pY * DEG) * 0.12], chest: [-2, 0, 0], head: [0, 0, 0], shapeL: 'cup', shapeR: 'cup',
-    look: [0, 0, 0, 0] }, bowPool), { arm: [70, -30, -40], elbow: [95, -40], hand: [-15, 0, 0] }), 'inOutSine');
+  // hold the ball: upper hand palm-down at the chest, lower hand palm-up at the waist, the water gathered between
+  key(10.4, arms(pose({ hip: [bowPool.hip[0] - Math.sin(pY * DEG) * 0.12, 0.84, bowPool.hip[2] - Math.cos(pY * DEG) * 0.12], spine: [2, 8, 0], chest: [-2, 6, 0], head: [0, 0, 0], shapeL: 'cup', shapeR: 'open',
+    look: [0, 0, 0, 0] }, bowPool), { arm: [48, -58, -72], elbow: [62, -70], hand: [-12, 0, 0] }, { arm: [72, -34, 8], elbow: [88, 4], hand: [4, 0, 0] }), 'inOutSine');
   // flowing pivot: turn right through ~180°, arms circling, the ribbon wraps around
   const y1 = pY + 70, y2 = pY + 135, y3 = YAW.P1;
   key(11.1, arms(pose({ stance: { o: [0.05, 0.05], yaw: y1, L: [0.2, 0.15], R: [-0.24, -0.2], h: 0.84, liftR: 0.06, heelR: 0.4 }, spine: [0, 18, 0], chest: [0, 10, 0], shapeL: 'open', shapeR: 'open' }),
@@ -154,19 +158,22 @@ function buildChoreography() {
     { arm: [40, 60, -20], elbow: [30, -20], hand: [0, 0, 0] }, { arm: [85, -10, -50], elbow: [40, -50], hand: [-10, 0, 0] }), 'inOutSine');
   const frontP1 = pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.14, 0.42], R: [-0.16, -0.36], h: 0.8, toeL: 4, toeR: 32, knee: 0.4 }, spine: [4, 0, 0], shapeL: 'open', shapeR: 'open', face: [0, 0, 0.4, 0.3, 0.3] });
   key(12.9, arms(pose({ spine: [4, -10, 0], chest: [0, -8, 0] }, frontP1), { arm: [80, 20, -40], elbow: [40, -30], hand: [-10, 0, 0] }, { arm: [70, -10, -30], elbow: [60, -40], hand: [-10, 0, 0] }), 'inOutSine');
-  // coil (anticipation): weight back, torso winds away, both hands drawn to the rear hip
-  const coil = arms(pose({ hip: [frontP1.hip[0] - Math.sin(y3 * DEG) * 0.14, 0.76, frontP1.hip[2] - Math.cos(y3 * DEG) * 0.14], spine: [8, -22, 0], chest: [2, -16, 0], neck: [0, 18, 0], head: [2, 12, 0],
-    shapeL: 'claw', shapeR: 'claw', face: [0, 0, 0.7, 0.5, 0.6] }, frontP1), { arm: [-10, -40, 20], elbow: [100, 30], hand: [-20, 0, 0] }, { arm: [-35, -55, 30], elbow: [95, 40], hand: [-20, 0, 0] });
+  // snake creeps down (anticipation): sink onto the rear leg, the lead leg straight toward the pillar;
+  // the lead hand slides low along it while the rear hand hooks high behind — the water runs along the ground
+  const coil = arms(pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.12, 0.68], R: [-0.2, -0.3], h: 0.44, toeL: 0, toeR: 62, hipOff: [-0.06, -0.24], liftL: 0, pitchL: 0 },
+    pelvis: [22, 0], spine: [26, -10, 0], chest: [8, -6, 0], neck: [-14, 8, 0], head: [-16, 6, 0], kneeL: [0.2, 0.3, 0.2], kneeR: [-0.55, 0.25, 1],
+    shapeL: 'palm', shapeR: 'hook', face: [0, 0, 0.7, 0.5, 0.6] }), { arm: [72, -66, -55], elbow: [6, -55], hand: [-20, 0, 0] }, { arm: [-40, 14, 25], elbow: [12, 0], hand: [78, 0, 0] });
   key(13.85, coil, 'inOutCubic');
-  // WHIP: explosive extension toward P1 / camera
-  const whip = arms(pose({ hip: [frontP1.hip[0] + Math.sin(y3 * DEG) * 0.1, 0.78, frontP1.hip[2] + Math.cos(y3 * DEG) * 0.1], spine: [10, 6, 0], chest: [4, 8, 0], neck: [-4, -6, 0], head: [-4, -8, 0],
-    shapeL: 'claw', shapeR: 'claw', face: [0, 0.35, 0.8, 0.6, 0.2] }, frontP1), { arm: [88, 4, -10], elbow: [8, -20], hand: [-25, 0, 0] }, { arm: [80, 2, -10], elbow: [10, -20], hand: [-25, 0, 0] });
+  // WATER SINGLE WHIP: rise into the bow stance, the lead palm drives the stream at the camera, the hook trails behind
+  const whip = arms(pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.14, 0.52], R: [-0.18, -0.3], h: 0.8, toeL: 2, toeR: 42, hipOff: [0, 0.07] },
+    pelvis: [4, 0], spine: [6, -8, 0], chest: [2, -6, 0], neck: [-4, 6, 0], head: [-4, 6, 0],
+    shapeL: 'palm', shapeR: 'hook', face: [0, 0.35, 0.8, 0.6, 0.2] }), { arm: [86, -2, -8], elbow: [12, -8], hand: [-66, 0, 0] }, { arm: [-40, 6, 22], elbow: [8, 0], hand: [80, 0, 0] });
   key(14.08, whip, 'strike');
   // stop dead — hold while the stream freezes
   key(15.15, pose({ face: [0, 0, 0.8, 0.7, 0.8] }, whip), 'linear');
   // breath, small draw back
-  key(15.85, arms(pose({ hip: [whip.hip[0] - Math.sin(y3 * DEG) * 0.1, 0.8, whip.hip[2] - Math.cos(y3 * DEG) * 0.1], spine: [2, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0, 0, 0.6, 0.4, 0.4] }, whip),
-    { arm: [72, -12, -10], elbow: [55, -10], hand: [-60, 0, 0] }), 'inOutSine');
+  key(15.85, arms(pose({ hip: [whip.hip[0] - Math.sin(y3 * DEG) * 0.14, 0.8, whip.hip[2] - Math.cos(y3 * DEG) * 0.14], spine: [2, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    shapeL: 'palm', shapeR: 'palm', face: [0, 0, 0.6, 0.4, 0.4] }, whip), { arm: [72, -14, -10], elbow: [62, -10], hand: [-62, 0, 0] }), 'inOutSine');
   // single push launches the spear
   const push = arms(pose({ stance: { o: [0.1 * Math.sin(y3 * DEG), 0.1 * Math.cos(y3 * DEG)], yaw: y3, L: [0.14, 0.5], R: [-0.16, -0.3], h: 0.78, toeR: 30 }, spine: [8, 0, 0], chest: [4, 0, 0],
     shapeL: 'palm', shapeR: 'palm', face: [0, 0.4, 0.8, 0.5, 0] }), { arm: [86, -6, -5], elbow: [6, -10], hand: [-72, 0, 0] });
@@ -231,21 +238,24 @@ function buildChoreography() {
   const fY = YAW.fire; const F0 = [0.1, 0.15];
   const fStance = pose({ stance: { o: F0, yaw: fY, L: [0.16, 0.26], R: [-0.18, -0.24], h: 0.84, toeL: 6, toeR: 28, knee: 0.4 }, spine: [2, 0, 0], shapeL: 'relax', shapeR: 'relax', face: [0.2, 0, 0.2, 0.1, 0] });
   key(34.2, arms(pose({}, fStance), 'relaxFront'), 'inOutSine');
-  // deep inhale, fists rise to the chin
-  key(35.05, arms(pose({ chest: [-6, 0, 0], head: [-4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0.2, 0, 0.6, 0.4, 0.6] }, fStance), { arm: [58, -40, 40], elbow: [130, 60], hand: [-10, 0, 0] }), 'inOutSine');
-  // sharp exhale: flames ignite in the fists
-  const fGuard = arms(pose({ chest: [2, 0, 0], head: [4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0.3, 0.9, 0.7, 0.2] }, fStance), { arm: [56, -44, 40], elbow: [124, 60], hand: [-6, 0, 0] });
+  // deep inhale (the scroll's 息氣火 — breath, energy, fire): fists rise to the chest
+  key(35.05, arms(pose({ chest: [-6, 0, 0], head: [-4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0.2, 0, 0.6, 0.4, 0.6] }, fStance), { arm: [48, -54, 38], elbow: [112, 58], hand: [-8, 0, 0] }), 'inOutSine');
+  // sharp exhale: flames ignite in the fists, below the face
+  const fGuard = arms(pose({ chest: [2, 0, 0], head: [4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0.3, 0.9, 0.7, 0.2] }, fStance), { arm: [46, -50, 36], elbow: [108, 56], hand: [-6, 0, 0] });
   key(35.3, fGuard, 'outCubic');
-  key(35.9, pose({ face: [0, 0, 0.9, 0.6, 0.6] }, fGuard), 'linear');
+  key(35.85, pose({ face: [0, 0, 0.9, 0.6, 0.6] }, fGuard), 'linear');
+  // Northern Shaolin chamber: both fists drawn to the hips, palms up; every jab fires from here
+  const fChamber = arms(pose({ chest: [0, 0, 0], head: [2, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0, 0.9, 0.6, 0.6] }, fStance), 'chamber');
+  key(36.08, fChamber, 'inOutSine');
   const jabTimes = [36.2, 36.55, 36.9, 37.25, 37.6];
   jabTimes.forEach((t, i) => {
     const L = i % 2 === 0;
     const tgt = L ? [0.06, 0.52, 0.78, 1] : [-0.02, 0.5, 0.8, 1];
-    const jab = pose(L ? { ikL: tgt, poleL: [0.7, -0.5, -0.2], elbowL: [0, -40], spine: [4, -10, 0], chest: [2, -6, 0] } : { ikR: tgt, poleR: [-0.7, -0.5, -0.2], elbowR: [0, -40], spine: [4, 12, 0], chest: [2, 8, 0] }, fGuard);
+    const jab = pose(L ? { ikL: tgt, poleL: [0.7, -0.5, -0.2], elbowL: [0, -40], spine: [4, -10, 0], chest: [2, -6, 0] } : { ikR: tgt, poleR: [-0.7, -0.5, -0.2], elbowR: [0, -40], spine: [4, 12, 0], chest: [2, 8, 0] }, fChamber);
     jab.face = [0, 0.5, 1, 0.7, 0];
-    key(t - 0.02, pose(L ? { spine: [2, 6, 0] } : { spine: [2, -6, 0] }, fGuard), 'inOutSine');
+    key(t - 0.02, pose(L ? { spine: [2, 6, 0] } : { spine: [2, -6, 0] }, fChamber), 'inOutSine');
     key(t + 0.07, jab, 'strike');
-    key(t + 0.26, pose({}, fGuard), 'outCubic');
+    key(t + 0.26, pose({}, fChamber), 'outCubic');
   });
   // rising kick (right leg) → vertical flame arc
   const kickSet = arms(pose({ stance: { o: F0, yaw: fY, L: [0.14, 0.22], R: [-0.16, -0.1], h: 0.88, toeL: 10, heelR: 0.3 }, spine: [2, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0, 1, 0.6, 0.5] }), 'guard');
@@ -276,28 +286,63 @@ function buildChoreography() {
   key(46.8, arms(pose({ stance: { o: [0, 0.05], yaw: 360, L: [0.14, 0.0], R: [-0.14, 0.0], h: 0.93 }, shapeL: 'relax', shapeR: 'relax', face: [0.2, 0, 0, 0, 0] }), 'down'), 'inOutSine');
 
   // ---------------------------------------------------------------- ACT V · AIR (47–58)
+  // Baguazhang circle walking: the low mud-wading step around a small circle, the lead palm held
+  // toward the centre where the wind gathers; a palm change, then the spiral that lifts the body.
   const aY = 360; const A0 = [0, 0.05];
-  const aBase = pose({ stance: { o: A0, yaw: aY, L: [0.2, 0], R: [-0.2, 0], h: 0.9, toeL: 12, toeR: 12, knee: 0.4 }, shapeL: 'open', shapeR: 'open', face: [0.3, 0, 0, 0, 0] });
-  // slow circles in the frontal plane: 4 keys per circle
-  const circle = (t, phase, big, low = 0) => {
-    const a = phase * TAU; const s = Math.sin(a), c = Math.cos(a);
-    const armL = [40 + 30 * c, -20 + 55 * s * big, -30], armR = [40 - 30 * c, -20 - 55 * s * big * 0.9, -30];
-    const P = pose({ hip: [A0[0], 0.9 - low, A0[1]], spine: [0, 8 * c, 4 * s], chest: [0, 6 * c, 0], armL, armR, elbowL: [30, -20], elbowR: [30, -20], handL: [-10, 0, 0], handR: [-10, 0, 0] }, aBase);
-    key(t, P, 'linear');
-  };
-  let tt = 47.4; let ph = 0;
-  while (tt < 52.0) { const big = remap(tt, 47.4, 51.5, 0.5, 1.1); circle(tt, ph, big, remap(tt, 47.4, 52, 0, 0.06)); ph += 0.25; tt += remap(tt, 47.4, 52, 0.55, 0.3); }
+  const CW = AIR_WALK;
+  {
+    const { c, R, t0, t1, steps } = CW;
+    const dth = TAU / steps, th0 = Math.PI;                 // start on the circle at A0, walk a full turn
+    const on = (th, r) => [c[0] + r * Math.cos(th), c[1] + r * Math.sin(th)];
+    let prev = 360;
+    const yawAt = (th) => { let y = Math.atan2(Math.sin(th), -Math.cos(th)) / DEG + 360; while (y - prev > 180) y -= 360; while (y - prev < -180) y += 360; return y; };
+    const upper = { spine: [2, 16, 0], chest: [0, 14, 0], neck: [0, 10, 0], head: [-3, 8, 0], face: [0.35, 0, 0.1, 0, 0],
+      armL: [46, 14, -45], elbowL: [30, -45], handL: [-42, 0, 0], armR: [100, -16, -35], elbowR: [88, -35], handR: [-30, 0, 0], shapeL: 'palm', shapeR: 'palm' };
+    const rIn = R - 0.13, rOut = R + 0.13;
+    let thL = th0, thR = th0;
+    const place = (P, th, liftL, liftR) => {
+      const y = yawAt(th); prev = y;
+      const h = on(th, R); P.hip = [h[0], 0.83, h[1]]; P.yaw = y;
+      const fl = on(thL, rIn), fr = on(thR, rOut);
+      P.footL = [fl[0], fl[1], liftL, yawAt(thL), 0]; prev = y;
+      P.footR = [fr[0], fr[1], liftR, yawAt(thR) + 16, 0]; prev = y;
+      P.kneeL = [0.3, 0, 1]; P.kneeR = [-0.3, 0, 1];
+    };
+    const dt = (t1 - t0) / steps;
+    // settle into the walking posture on the spot
+    const P0 = pose(upper); place(P0, th0, 0, 0); key(t0, P0, 'inOutSine');
+    for (let k = 1; k <= steps; k++) {
+      const left = k % 2 === 1;
+      const thHip0 = th0 - (k - 1) * dth, thHip1 = th0 - k * dth;
+      const target = k === steps ? thHip1 : thHip1 - dth / 2;
+      const from = left ? thL : thR;
+      // mid-step: the moving foot glides low past the standing one
+      if (left) thL = (from + target) / 2; else thR = (from + target) / 2;
+      const Pm = pose(upper); place(Pm, (thHip0 + thHip1) / 2, left ? 0.035 : 0, left ? 0 : 0.035); key(t0 + (k - 0.5) * dt, Pm, 'linear');
+      if (left) thL = target; else thR = target;
+      const Pk = pose(upper); place(Pk, thHip1, 0, 0); key(t0 + k * dt, Pk, k === steps ? 'inOutSine' : 'linear');
+    }
+    // closing half-step: bring the trailing foot level
+    thL = thR = th0 - steps * dth;
+    const Pc = pose(upper); place(Pc, thL, 0, 0); key(t1 + 0.12, Pc, 'inOutSine');
+  }
+  // palm change: toe-in and wrap the arms low, then turn out as one palm spirals overhead
+  key(51.8, pose({ stance: { o: A0, yaw: 720 + 35, L: [0.12, 0.02], R: [-0.06, 0.12], h: 0.8, toeR: -40, knee: 0.45 }, spine: [6, 20, 0], chest: [4, 12, 0],
+    armL: [84, -46, 30], elbowL: [70, 30], handL: [-10, 0, 0], armR: [88, -40, 30], elbowR: [66, 30], handR: [-10, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0.3, 0, 0.3, 0.1, 0] }), 'inOutSine');
+  key(52.15, pose({ stance: { o: A0, yaw: 720 + 75, L: [0.1, 0], R: [-0.12, 0.04], h: 0.9, heelL: 0.35, liftR: 0.06 }, spine: [-4, -10, 0], chest: [-6, -8, 0], head: [-10, 0, 0],
+    armL: [20, -58, 0], elbowL: [25, 0], handL: [-20, 0, 0], armR: [14, 76, -20], elbowR: [26, -20], handR: [-20, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'inOutSine');
   // spin: pirouette on the left foot, arms extended then drawn in, rising
-  key(52.4, arms(pose({ stance: { o: A0, yaw: aY + 90, L: [0.08, 0], R: [-0.12, 0.05], h: 0.92, liftR: 0.15, heelL: 0.5 }, shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'wide'), 'inQuad');
-  key(53.0, arms(pose({ stance: { o: A0, yaw: aY + 360, L: [0.06, 0], R: [-0.06, 0.04], h: 1.1, liftL: 0.15, liftR: 0.22, pitchL: 35, pitchR: 35 }, lift: 0.5, shapeL: 'open', shapeR: 'open', face: [0.6, 0, 0, 0, 0] }), 'wide'), 'linear');
-  key(53.6, arms(pose({ stance: { o: A0, yaw: aY + 720, L: [0.06, 0], R: [-0.06, 0.04], h: 1.6, liftL: 0.66, liftR: 0.72, pitchL: 45, pitchR: 45 }, lift: 1, shapeL: 'relax', shapeR: 'relax', face: [0.7, 0, 0, 0, 0] }),
+  const aS = 810;
+  key(52.4, arms(pose({ stance: { o: A0, yaw: aS, L: [0.08, 0], R: [-0.12, 0.05], h: 0.92, liftR: 0.15, heelL: 0.5 }, shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'wide'), 'inQuad');
+  key(53.0, arms(pose({ stance: { o: A0, yaw: aS + 270, L: [0.06, 0], R: [-0.06, 0.04], h: 1.1, liftL: 0.15, liftR: 0.22, pitchL: 35, pitchR: 35 }, lift: 0.5, shapeL: 'open', shapeR: 'open', face: [0.6, 0, 0, 0, 0] }), 'wide'), 'linear');
+  key(53.6, arms(pose({ stance: { o: A0, yaw: aS + 630, L: [0.06, 0], R: [-0.06, 0.04], h: 1.6, liftL: 0.66, liftR: 0.72, pitchL: 45, pitchR: 45 }, lift: 1, shapeL: 'relax', shapeR: 'relax', face: [0.7, 0, 0, 0, 0] }),
     { arm: [30, -40, 0], elbow: [70, 0], hand: [0, 0, 0] }), 'linear');
-  key(55.2, arms(pose({ stance: { o: A0, yaw: aY + 900, L: [0.08, 0.02], R: [-0.08, -0.06], h: 2.6, liftL: 1.75, liftR: 1.66, pitchL: 50, pitchR: 45 }, lift: 1, kneeR: [-0.2, 0.3, 1], shapeL: 'open', shapeR: 'open', face: [0.8, 0, 0, 0, 0] }), 'wide'), 'outSine');
-  key(57.8, arms(pose({ stance: { o: A0, yaw: aY + 990, L: [0.08, 0.02], R: [-0.08, -0.08], h: 2.95, liftL: 2.1, liftR: 1.96, pitchL: 50, pitchR: 40 }, lift: 1, head: [-8, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.9, 0, 0, 0, 0] }),
+  key(55.2, arms(pose({ stance: { o: A0, yaw: aS + 810, L: [0.08, 0.02], R: [-0.08, -0.06], h: 2.6, liftL: 1.75, liftR: 1.66, pitchL: 50, pitchR: 45 }, lift: 1, kneeR: [-0.2, 0.3, 1], shapeL: 'open', shapeR: 'open', face: [0.8, 0, 0, 0, 0] }), 'wide'), 'outSine');
+  key(57.8, arms(pose({ stance: { o: A0, yaw: aS + 900, L: [0.08, 0.02], R: [-0.08, -0.08], h: 2.95, liftL: 2.1, liftR: 1.96, pitchL: 50, pitchR: 40 }, lift: 1, head: [-8, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.9, 0, 0, 0, 0] }),
     { arm: [10, -5, -60], elbow: [20, -50], hand: [-10, 0, 0] }), 'inOutSine');
 
   // ---------------------------------------------------------------- ACT VI · UNITY (58–70)
-  const uY = aY + 1080; // face the default camera side (+Z) again
+  const uY = aS + 990; // 1800° ≡ 0: face the default camera side (+Z) again, and loop seamlessly
   const hover = (h, over = {}, st = {}) => pose(Object.assign({ stance: Object.assign({ o: A0, yaw: uY, L: [0.09, 0.03], R: [-0.08, -0.1], h, liftL: h - 0.84, liftR: h - 0.94, pitchL: 50, pitchR: 38 }, st), lift: 1, kneeR: [-0.2, 0.4, 1] }, over));
   key(60.0, arms(hover(3.0, { chest: [-8, 0, 0], head: [-12, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.5, 0, 0, 0, 0] }), { arm: [10, 18, -70], elbow: [14, -70], hand: [-15, 0, 0] }), 'inOutSine');
   key(62.6, arms(hover(3.05, { chest: [-4, 0, 0], head: [-6, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.2, 0, 0.3, 0.2, 0] }), { arm: [35, 5, -60], elbow: [30, -60], hand: [-15, 0, 0] }), 'inOutSine');
@@ -313,11 +358,15 @@ function buildChoreography() {
   // descend and land softly
   key(67.7, arms(hover(1.05, { lift: 0.4, face: [0.5, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }, { liftL: 0.08, liftR: 0.05, pitchL: 20, pitchR: 20 }), 'relaxFront'), 'inOutSine');
   key(68.05, arms(pose({ stance: { o: A0, yaw: uY, L: [0.14, 0.04], R: [-0.14, -0.06], h: 0.84, knee: 0.3 }, face: [0.6, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'relaxFront'), 'outQuad');
-  key(68.5, arms(pose({ stance: { o: A0, yaw: uY, L: [0.13, 0.04], R: [-0.14, -0.06], h: 0.93 }, face: [0.7, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'inOutSine');
+  // closing of the 24-step form: cross hands at the chest, then separate and press down as the breath leaves
+  key(68.38, arms(pose({ stance: { o: A0, yaw: uY, L: [0.15, 0.04], R: [-0.15, -0.06], h: 0.9 }, face: [0.6, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }),
+    { arm: [98, -22, 20], elbow: [74, 20], hand: [-8, 0, 0] }), 'inOutSine');
+  key(68.78, arms(pose({ stance: { o: A0, yaw: uY, L: [0.14, 0.04], R: [-0.14, -0.06], h: 0.9, knee: 0.3 }, face: [0.75, 0, 0, 0, 0], shapeL: 'palm', shapeR: 'palm' }),
+    { arm: [55, -52, 0], elbow: [40, 0], hand: [-58, 0, 0] }), 'inOutSine');
   // return to the kneel
-  key(69.1, pose({ hip: [0.0, 0.62, 0.0], pelvis: [16, 0], spine: [12, 0, 0], yaw: uY, footR: [-0.14, 0.3, 0, uY - 6, 0], footL: [0.13, -0.3, 0, uY + 4, 108], kneeL: [0.12, -1.2, 1], face: [0.9, 0, 0, 0, 0] }, arms(pose({}, kneel), 'relaxFront')), 'inOutSine');
+  key(69.2, pose({ hip: [0.0, 0.62, 0.0], pelvis: [16, 0], spine: [12, 0, 0], yaw: uY, footR: [-0.14, 0.3, 0, uY - 6, 0], footL: [0.13, -0.3, 0, uY + 4, 108], kneeL: [0.12, -1.2, 1], face: [0.9, 0, 0, 0, 0] }, arms(pose({}, kneel), 'relaxFront')), 'inOutSine');
   const kneelEnd = pose({ yaw: uY }, kneel);
-  key(69.75, kneelEnd, 'inOutSine');
+  key(69.8, kneelEnd, 'inOutSine');
   key(70.0, kneelEnd, 'linear');
   CHOREO.keys.sort((a, b) => a.t - b.t);
 }

@@ -212,12 +212,15 @@ function makeStoneMaterial({ tint = [1, 1, 1], terrain = false, key = 'stone' } 
             vec2 q = (vWPos.xz - P.xy); float ca = cos(P.z * 7.1), sa = sin(P.z * 7.1);
             q = vec2(q.x * ca + q.y * sa, -q.x * sa + q.y * ca);
             vec2 hb = vec2(0.62, 0.36) * P.z / 0.62;
-            vec2 dq = abs(q) - hb; float sdb = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) + 0.04 * sp_vnoise2(vWPos.xz * 9.0);
-            float hole = smoothstep(0.03, -0.05, sdb) * P.w;
-            float edge = smoothstep(0.12, 0.0, abs(sdb)) * P.w;
-            base = mix(base, vec3(0.012, 0.011, 0.01), hole * 0.92);
-            base = mix(base, base * 1.3 + 0.02, edge * (1.0 - hole) * 0.4);
-            gAO *= 1.0 - hole * 0.9; gRough = mix(gRough, 1.0, hole);
+            vec2 dq = abs(q) - hb; float sdb = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) + 0.09 * (sp_vnoise2(vWPos.xz * 6.0) - 0.5) + 0.04 * sp_vnoise2(vWPos.xz * 19.0);
+            float hole = smoothstep(0.04, -0.1, sdb) * P.w;
+            float deep = smoothstep(-0.02, -0.3, sdb);                      // raw socket, darkest where it was deepest
+            float edge = smoothstep(0.14, 0.0, abs(sdb)) * P.w;
+            vec3 socket = base * mix(0.55, 0.25, deep) * vec3(0.95, 0.9, 0.84);  // fresh, unweathered stone in shadow
+            base = mix(base, socket, hole);
+            base = mix(base, base * 1.25 + 0.02, edge * (1.0 - hole) * 0.4);
+            gAO *= 1.0 - hole * (0.35 + 0.4 * deep); gRough = mix(gRough, 1.0, hole);
+            gN = normalize(gN + vec3(q.x, 0.0, q.y) * edge * 0.6);
           }
           ` : ''}
           // painted effect masks: wet / scorch / glow / frost

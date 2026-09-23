@@ -126,6 +126,9 @@ function seekTo(T, preroll = 2.2) {
   // let the cloth settle into the current pose
   for (let i = 0; i < 24; i++) { CHAR.canon.solve(CHAR.pose, 1 / 60); CHAR.fig.apply(CHAR.canon, 1 / 60, { breath: 0.9 }); updateCloth(1 / 60, simTime + i / 60); }
   CAM.first = true; CAM.shotIndex = -1;
+  // the sky normally refreshes every few frames; a jump in time must refresh it now
+  applyTracks(TL.T); updateSkyState(); renderSkyTexture(true); updateEnvironment(true);
+  if (typeof EXPO !== 'undefined') EXPO.first = true;
 }
 
 let lastNow = performance.now();
@@ -149,7 +152,7 @@ function debugCameraOverride() {
   const f = URLQ.get('follow'), c = URLQ.get('cam');
   if (URLQ.has('nofade')) POST.grade.fade = 0;
   if (c) { const v = c.split(',').map(Number); camera.position.set(v[0], v[1], v[2]); camera.lookAt(v[3], v[4], v[5]); if (v[6]) camera.fov = v[6]; }
-  else if (f) { const v = f.split(',').map(Number); const h = CAM.anchors.hips || V3(0, 1, 0); camera.position.set(h.x + Math.sin(v[0] * DEG) * v[1], v[2], h.z + Math.cos(v[0] * DEG) * v[1]); camera.lookAt(h.x, h.y * 0.85, h.z); camera.fov = v[3] || 34; }
+  else if (f) { const v = f.split(',').map(Number); const h = CAM.anchors.hips || V3(0, 1, 0); camera.position.set(h.x + Math.sin(v[0] * DEG) * v[1], v[2], h.z + Math.cos(v[0] * DEG) * v[1]); camera.lookAt(h.x, v[4] != null && !isNaN(v[4]) ? v[4] : h.y * 0.85, h.z); camera.fov = v[3] || 34; }
   else return;
   camera.updateProjectionMatrix(); camera.updateMatrixWorld(); POST.grade.aperture = 0; POST.cut = true;
 }

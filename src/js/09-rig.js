@@ -16,6 +16,7 @@ const HAND_SHAPES = {
   blade:   [0.02, 0.0, 0.0, -0.05, 0.6, 0.7],
   claw:    [0.35, 0.8, 0.75, 0.45, 0.4, 0.5],
   cup:     [0.25, 0.32, 0.2, 0.05, 0.2, 0.55],
+  hook:    [0.62, 0.55, 0.3, -0.15, 0.45, 0.95],   // Tai Chi hook hand: fingertips gathered to the thumb
 };
 function handParams(h) {
   if (!h) return HAND_SHAPES.relax;

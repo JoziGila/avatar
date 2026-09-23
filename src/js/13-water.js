@@ -483,12 +483,18 @@ function waterTarget(u, T, out) {
     r += (0.1 - 0.025 * u) * w.wrap;
   }
   if (w.coil > 0) {
+    // snake creeps down: the stream runs low along the ground from the lead palm, round behind the
+    // rear foot and up into the hooked hand — loaded like a drawn whip
     const d = toP1Dir(F, _we);
-    const c = _wa.copy(F).addScaledVector(d, -0.42).setY(0.98);
-    const ang = -(T - t.coil) * 14.0 - u * 9.4;
-    const rad = 0.3 + 0.16 * u;
-    _wf.set(c.x + Math.sin(ang) * rad, c.y + (u - 0.5) * 0.3 + Math.sin(ang) * 0.1, c.z + Math.cos(ang) * rad);
-    _wf.lerp(palms, (1 - smoothstep(0, 0.18, u)) * 0.8);
+    const A = _wa.copy(FIG.palm_L);
+    const B = _wb.copy(FIG.p.foot_R).addScaledVector(d, -0.55).setY(0.12);
+    const C = _wc.copy(FIG.palm_R);
+    const mid = _wd.copy(FIG.p.foot_L).lerp(FIG.p.foot_R, 0.5).setY(0.08);
+    // quadratic chain A → mid → B → C
+    const s = u * 3;
+    if (s < 1) _wf.copy(A).lerp(mid, s); else if (s < 2) _wf.copy(mid).lerp(B, s - 1); else _wf.copy(B).lerp(C, Ease.inOutSine(s - 2));
+    const wig = Math.sin(u * 14 - (T - t.coil) * 20) * 0.05 * Math.sin(u * Math.PI);
+    _wf.x += wig * d.z; _wf.z -= wig * d.x;
     out.addScaledVector(_wf, w.coil);
     r += (0.1 - 0.02 * u) * w.coil;
   }
@@ -497,8 +503,9 @@ function waterTarget(u, T, out) {
     const k = Ease.outCubic(clamp((T - t.whip) / (t.reach - t.whip)));
     const L = 2.62 * k;
     const along = (1 - u) * L;
-    _wf.copy(palms).addScaledVector(d, along).addScaledVector(side, 0.28 * (1 - u) * k);
-    _wf.y = lerp(palms.y, 1.3, (1 - u) * k) + Math.sin((1 - u) * Math.PI) * 0.12;
+    const lead = FIG.palm_L;
+    _wf.copy(lead).addScaledVector(d, along).addScaledVector(side, 0.28 * (1 - u) * k);
+    _wf.y = lerp(lead.y, 1.3, (1 - u) * k) + Math.sin((1 - u) * Math.PI) * 0.12;
     // travelling S-wave that dies as the whip straightens
     const amp = 0.22 * (1 - k) + 0.02;
     const wv = Math.sin(u * 9.0 - (T - t.whip) * 38.0) * amp * Math.sin(u * Math.PI);
@@ -514,8 +521,10 @@ function spearFrame(T) {
   const S = WATER.spear;
   const F = FIG.p.hips, palms = FIG.palms;
   if (!S.fixed) {
-    const d = S.dir.copy(WATER.hitPoint).sub(palms).normalize();
-    S.base.copy(palms).addScaledVector(d, 0.18);
+    // the spear condenses off the lead palm, then settles between both palms for the push
+    const anchor = _wd.copy(FIG.palm_L).lerp(palms, smoothstep(15.8, 16.0, T));
+    const d = S.dir.copy(WATER.hitPoint).sub(anchor).normalize();
+    S.base.copy(anchor).addScaledVector(d, 0.18);
   }
   return S;
 }
@@ -624,7 +633,7 @@ function updateWater(T, dt) {
     const sp = _v2.copy(S.base).addScaledVector(S.dir, SPEAR_L * (1 - u)).add(flyOff);
     const spR = 0.1 * Math.pow(Math.sin(Math.PI * clamp(Math.pow(1 - u, 0.55), 0, 1) * 0.999 + 0.001), 0.8) * (u > 0.97 ? 0.6 : 1);
     // far part of the frozen whip breaks away when the spear condenses
-    const dist = nd.fz.distanceTo(FIG.palms);
+    const dist = nd.fz.distanceTo(FIG.palm_L);
     const keep = T < t.crack ? 1 : (dist < 1.9 ? 1 : 0);
     const p = V3().copy(nd.fz).lerp(sp, form);
     pts.push(p); radii.push(lerp(iceR * keep, spR, form));
@@ -652,7 +661,7 @@ function updateWater(T, dt) {
 function iceCrack(ctx) {
   const N = WATER.N; let spawned = 0;
   for (let i = 0; i < N; i += 2) {
-    const nd = WATER.nodes[i]; if (nd.fz.distanceTo(FIG.palms) < 1.9) continue;
+    const nd = WATER.nodes[i]; if (nd.fz.distanceTo(FIG.palm_L) < 1.9) continue;
     ICE.shards.spawn({ pos: nd.fz, vel: V3((Math.random() - 0.5) * 0.8, Math.random() * 0.6, (Math.random() - 0.5) * 0.8), scale: 0.035 + Math.random() * 0.03, slide: 1 }); spawned++;
     PS.debris.emit({ count: 12, scale: 1, pos: nd.fz, radius: 0.06, vel: V3(0, 0.3, 0), spread: 1.2, life: [0.8, 1.6], size: [0.004, 0.01], kind: 3 });
     PS.smoke.emit({ count: 1, scale: 1, pos: nd.fz, radius: 0.05, vel: V3(0, 0, 0), spread: 0.3, life: [0.8, 1.4], size: [0.05, 0.1], kind: 2 });

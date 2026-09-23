@@ -41,7 +41,7 @@ void behave(float kind, inout vec3 p, inout vec3 v, float age, float life, inout
   if (kind < 0.5 || kind > 2.5){            // flame / plasma: buoyant, turbulent, dragged into the air mass
     vec3 cu = curlAt(p * 0.55 + vec3(0.0, -uTime * 0.45, c.x * 7.0));
     float buoy = kind > 2.5 ? 1.2 : 3.2;
-    v += (vec3(0.0, buoy * (0.25 + t), 0.0) + cu * 26.0 * (0.35 + t)) * dt;
+    v += (vec3(0.0, buoy * (0.25 + t), 0.0) + cu * 15.0 * (0.25 + t)) * dt;
     v += (w - v) * (1.0 - exp(-dt * (1.1 + 2.8 * t)));
   } else if (kind < 1.5){                   // ember: light, wandering, slowly settling
     vec3 cu = curlAt(p * 0.22 + vec3(uTime * 0.03, 0.0, c.x * 3.0));
@@ -187,7 +187,7 @@ void main(){
   float dens = smoothstep(1.0, 0.1, r + (n - 0.5) * 1.3);
   vec3 base; float op;
   if (vKind < 0.5){ base = vec3(0.075, 0.07, 0.065); op = 0.55; }
-  else if (vKind < 1.5){ base = vec3(0.46, 0.39, 0.3) * (0.85 + 0.3 * vParam); op = 0.5; }
+  else if (vKind < 1.5){ base = vec3(0.42, 0.39, 0.345) * (0.85 + 0.3 * vParam); op = 0.42; }
   else if (vKind < 2.5){ base = vec3(0.78, 0.84, 0.88); op = 0.32; }
   else if (vKind < 3.5){ base = vec3(0.85); op = 0.28; }
   else { base = vec3(0.7, 0.72, 0.78); op = 0.2; }
@@ -237,11 +237,11 @@ void main(){
   vec3 nw = normalize((vec4(nv, 0.0) * viewMatrix).xyz);
   if (vKind < 0.5){                 // pebble: irregular chunk of granite
     float ang = atan(vQ.y, vQ.x);
-    float edge = 0.72 + 0.18 * sin(ang * 3.0 + vSeed * 20.0) + 0.1 * sin(ang * 5.0 + vSeed * 7.0);
+    float edge = 0.82 + 0.1 * sin(ang * 3.0 + vSeed * 20.0) + 0.06 * sin(ang * 5.0 + vSeed * 7.0);
     if (r > edge) discard;
     float facet = floor((ang + 3.1416) / 1.2566 + vSeed * 3.0);
-    vec3 fn = normalize(nw + (vec3(sin(facet * 2.1), cos(facet * 1.7), sin(facet * 3.3)) - 0.5) * 0.6);
-    vec3 base = vec3(0.26, 0.24, 0.22) * (0.75 + 0.5 * fract(vSeed * 13.7));
+    vec3 fn = normalize(nw + (vec3(sin(facet * 2.1), cos(facet * 1.7), sin(facet * 3.3)) - 0.5) * 0.35);
+    vec3 base = vec3(0.3, 0.29, 0.28) * (0.7 + 0.5 * fract(vSeed * 13.7));
     col = litSprite(vWPos, fn, 0.0) * base; a = 1.0;
   } else if (vKind < 1.5){          // droplet: a tiny lens of sky with a sun glint
     if (r > 1.0) discard;
@@ -267,7 +267,7 @@ void main(){
     col *= softFade(vViewZ, 0.3);
     gl_FragColor = vec4(col, 0.0); return;
   }
-  a *= softFade(vViewZ, 0.05);
+  a *= softFade(vViewZ, 0.05) * smoothstep(0.45, 1.1, vViewZ);   // nothing flat-looking right on the lens
   gl_FragColor = vec4(col * a, a);
 }`;
 
@@ -403,12 +403,13 @@ const RIGIDS = [];
 
 // jagged chunk geometry (convex-ish, flat-shaded facets)
 function chunkGeometry(seed, sx = 1, sy = 1, sz = 1, detail = 0) {
-  const r = new RNG(seed);
   const g = new THREE.IcosahedronGeometry(1, detail);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    const k = 0.62 + r.f(0, 0.5);
-    p.setXYZ(i, p.getX(i) * sx * k, p.getY(i) * sy * k, p.getZ(i) * sz * k);
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    // keyed on position so the duplicated vertices of each corner move together (closed, faceted solid)
+    const k = 0.66 + 0.46 * fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 19.3) * 43758.5453);
+    p.setXYZ(i, x * sx * k, y * sy * k, z * sz * k);
   }
   const ng = g.index ? g.toNonIndexed() : g; ng.computeVertexNormals();
   return ng;

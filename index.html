@@ -619,8 +619,8 @@ function bakeGranite(size) {
   vec3 srgb(vec3 c){ return pow(c, vec3(2.2)); }
   // height & material of the stone at uv (tile coords)
   float graniteHeight(vec2 uv, out vec3 alb, out float rough){
-    vec3 g1 = pvor(uv, 190.0, 0.9);   // feldspar-scale crystals ~13mm
-    vec3 g2 = pvor(uv + 0.31, 420.0, 0.95); // fine grains ~6mm
+    vec3 g1 = pvor(uv, 290.0, 0.9);   // feldspar-scale crystals ~9mm
+    vec3 g2 = pvor(uv + 0.31, 640.0, 0.95); // fine grains ~4mm
     vec3 cr = pvor(uv + 0.77, 7.0, 0.85);   // hairline crack network ~35cm cells
     vec3 cr2 = pvor(uv + 0.13, 3.0, 0.8);   // larger fractures
     float macro = pfbm(uv, 4.0, 5, 0.55);
@@ -631,16 +631,17 @@ function bakeGranite(size) {
     vec3 feld = mix(srgb(vec3(0.70, 0.64, 0.58)), srgb(vec3(0.78, 0.72, 0.64)), sp_hash11(id * 7.1));
     vec3 quartz = srgb(vec3(0.56, 0.57, 0.58));
     vec3 plag = srgb(vec3(0.83, 0.81, 0.77));
-    vec3 biot = srgb(vec3(0.13, 0.12, 0.115));
+    vec3 biot = srgb(vec3(0.21, 0.2, 0.19));
     vec3 c; float r;
     if (id < 0.42){ c = feld; r = 0.84; }
     else if (id < 0.66){ c = quartz; r = 0.55; }
-    else if (id < 0.88){ c = plag; r = 0.8; }
+    else if (id < 0.9){ c = plag; r = 0.8; }
     else { c = biot; r = 0.62; }
     // fine grains overlay: biotite specks and quartz glints
-    if (id2 > 0.9) { c = mix(c, biot, 0.85); r = 0.6; }
+    if (id2 > 0.93) { c = mix(c, biot, 0.7); r = 0.6; }
     else if (id2 < 0.12) { c = mix(c, quartz, 0.6); r = min(r, 0.6); }
     c *= 0.9 + 0.2 * sp_hash11(id2 * 13.7);
+    c = mix(c, srgb(vec3(0.6, 0.585, 0.56)), 0.3);   // weathered surface: crystals read as texture, not as confetti
     // weathering: grime in low areas, iron staining, lichen patches
     float grime = smoothstep(0.35, 0.75, pfbm(uv + 3.1, 6.0, 5, 0.6));
     c = mix(c, c * srgb(vec3(0.62, 0.58, 0.53)), grime * 0.75);
@@ -932,12 +933,12 @@ function initSky() {
       vec3 p = d * scale; vec3 base = floor(p - 0.5); vec3 col = vec3(0.0);
       for (int k = 0; k < 2; k++) for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++){
         vec3 c = base + vec3(float(i), float(j), float(k));
-        vec4 h = sp_hash41(dot(c, vec3(1.0, 57.0, 113.0)) + scale * 1.618);
+        vec4 h = vec4(sp_hash33(c * 0.7131 + scale * 1.618), sp_hash13(c * 1.3173 - scale));   // true 3D hash: no lattice rows
         if (h.x > density) continue;
         vec3 sp = normalize(c + 0.25 + 0.5 * h.yzw);
-        float ang = acos(clamp(dot(sp, d), -1.0, 1.0));
+        float ang = length(sp - d);            // chord ≈ angle; acos loses all precision at star scale
         float w = pix * 0.85;
-        float mag = pow(h.y, 7.0) * 4.0 + 0.06;
+        float mag = pow(h.y, 6.0) * 3.2 + 0.015;
         float twk = 0.7 + 0.3 * sin(uTime * (2.0 + 9.0 * h.z) + h.w * 40.0) * smoothstep(0.5, 0.0, d.y);
         vec3 tint = mix(vec3(0.66, 0.78, 1.0), vec3(1.0, 0.8, 0.58), smoothstep(0.3, 1.0, h.z));
         col += tint * mag * twk * exp(-ang * ang / (w * w));
@@ -962,14 +963,16 @@ function initSky() {
       float skyL = sp_luma(col);
       float vis = uStarVis * smoothstep(-0.02, 0.18, rd.y) * clamp(1.0 - skyL * 8.0, 0.0, 1.0);
       if (vis > 0.001){
-        vec3 s = starLayer(rd, 90.0, 0.5, pix) + starLayer(rd, 210.0, 0.35, pix) * 0.55 + starLayer(rd, 480.0, 0.3, pix) * 0.3;
+        // sparse bright stars, a thinner middle layer, and a faint dusting concentrated in the milky way
+        vec3 mwN0 = normalize(vec3(0.35, 0.55, 0.76)); float inBand = exp(-pow(dot(rd, mwN0) / 0.3, 2.0));
+        vec3 s = starLayer(rd, 70.0, 0.05, pix) + starLayer(rd, 150.0, 0.035, pix) * 0.5 + starLayer(rd, 300.0, 0.012 + 0.05 * inBand, pix) * 0.3;
         // milky way band: great circle tilted across the sky
         vec3 mwN = normalize(vec3(0.35, 0.55, 0.76));
         float band = exp(-pow(dot(rd, mwN) / 0.23, 2.0));
         float neb = sp_fbm3(rd * 6.0) * 0.8 + sp_fbm3(rd * 17.0) * 0.4;
         float dust = smoothstep(0.45, 0.75, sp_fbm3(rd * 11.0 + 3.0)) * exp(-pow(dot(rd, mwN) / 0.06, 2.0));
         vec3 mw = vec3(0.020, 0.022, 0.030) * band * neb * (1.0 - 0.8 * dust) * uMilky;
-        col += (s * 0.35 + mw) * vis;
+        col += (s * 0.5 + mw) * vis;
       }
       // moon
       float cm = dot(rd, uMoonDir); float moonR = 0.0085;
@@ -1500,12 +1503,15 @@ function makeStoneMaterial({ tint = [1, 1, 1], terrain = false, key = 'stone' } 
             vec2 q = (vWPos.xz - P.xy); float ca = cos(P.z * 7.1), sa = sin(P.z * 7.1);
             q = vec2(q.x * ca + q.y * sa, -q.x * sa + q.y * ca);
             vec2 hb = vec2(0.62, 0.36) * P.z / 0.62;
-            vec2 dq = abs(q) - hb; float sdb = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) + 0.04 * sp_vnoise2(vWPos.xz * 9.0);
-            float hole = smoothstep(0.03, -0.05, sdb) * P.w;
-            float edge = smoothstep(0.12, 0.0, abs(sdb)) * P.w;
-            base = mix(base, vec3(0.012, 0.011, 0.01), hole * 0.92);
-            base = mix(base, base * 1.3 + 0.02, edge * (1.0 - hole) * 0.4);
-            gAO *= 1.0 - hole * 0.9; gRough = mix(gRough, 1.0, hole);
+            vec2 dq = abs(q) - hb; float sdb = length(max(dq, 0.0)) + min(max(dq.x, dq.y), 0.0) + 0.09 * (sp_vnoise2(vWPos.xz * 6.0) - 0.5) + 0.04 * sp_vnoise2(vWPos.xz * 19.0);
+            float hole = smoothstep(0.04, -0.1, sdb) * P.w;
+            float deep = smoothstep(-0.02, -0.3, sdb);                      // raw socket, darkest where it was deepest
+            float edge = smoothstep(0.14, 0.0, abs(sdb)) * P.w;
+            vec3 socket = base * mix(0.55, 0.25, deep) * vec3(0.95, 0.9, 0.84);  // fresh, unweathered stone in shadow
+            base = mix(base, socket, hole);
+            base = mix(base, base * 1.25 + 0.02, edge * (1.0 - hole) * 0.4);
+            gAO *= 1.0 - hole * (0.35 + 0.4 * deep); gRough = mix(gRough, 1.0, hole);
+            gN = normalize(gN + vec3(q.x, 0.0, q.y) * edge * 0.6);
           }
           ` : ''}
           // painted effect masks: wet / scorch / glow / frost
@@ -2394,6 +2400,7 @@ const HAND_SHAPES = {
   blade:   [0.02, 0.0, 0.0, -0.05, 0.6, 0.7],
   claw:    [0.35, 0.8, 0.75, 0.45, 0.4, 0.5],
   cup:     [0.25, 0.32, 0.2, 0.05, 0.2, 0.55],
+  hook:    [0.62, 0.55, 0.3, -0.15, 0.45, 0.95],   // Tai Chi hook hand: fingertips gathered to the thumb
 };
 function handParams(h) {
   if (!h) return HAND_SHAPES.relax;
@@ -3740,7 +3747,8 @@ class GPUParticles {
     if (e.count > 0 && n < 1 && Math.random() < e.count * Q.particles) n = 1;
     if (n <= 0) return;
     n = Math.min(n, Math.floor(this.cap / 4));
-    this.queue.push(Object.assign({}, e, { n }));
+    // snapshot vectors now: callers pass shared scratch vectors that change before pack()
+    this.queue.push(Object.assign({}, e, { n, pos: e.pos.clone(), pos2: e.pos2 ? e.pos2.clone() : null, vel: e.vel ? e.vel.clone() : null, normal: e.normal ? e.normal.clone() : null }));
   }
   pack() {
     const D = this.emitData; let k = 0;
@@ -3908,7 +3916,7 @@ void behave(float kind, inout vec3 p, inout vec3 v, float age, float life, inout
   if (kind < 0.5 || kind > 2.5){            // flame / plasma: buoyant, turbulent, dragged into the air mass
     vec3 cu = curlAt(p * 0.55 + vec3(0.0, -uTime * 0.45, c.x * 7.0));
     float buoy = kind > 2.5 ? 1.2 : 3.2;
-    v += (vec3(0.0, buoy * (0.25 + t), 0.0) + cu * 26.0 * (0.35 + t)) * dt;
+    v += (vec3(0.0, buoy * (0.25 + t), 0.0) + cu * 15.0 * (0.25 + t)) * dt;
     v += (w - v) * (1.0 - exp(-dt * (1.1 + 2.8 * t)));
   } else if (kind < 1.5){                   // ember: light, wandering, slowly settling
     vec3 cu = curlAt(p * 0.22 + vec3(uTime * 0.03, 0.0, c.x * 3.0));
@@ -4054,7 +4062,7 @@ void main(){
   float dens = smoothstep(1.0, 0.1, r + (n - 0.5) * 1.3);
   vec3 base; float op;
   if (vKind < 0.5){ base = vec3(0.075, 0.07, 0.065); op = 0.55; }
-  else if (vKind < 1.5){ base = vec3(0.46, 0.39, 0.3) * (0.85 + 0.3 * vParam); op = 0.5; }
+  else if (vKind < 1.5){ base = vec3(0.42, 0.39, 0.345) * (0.85 + 0.3 * vParam); op = 0.42; }
   else if (vKind < 2.5){ base = vec3(0.78, 0.84, 0.88); op = 0.32; }
   else if (vKind < 3.5){ base = vec3(0.85); op = 0.28; }
   else { base = vec3(0.7, 0.72, 0.78); op = 0.2; }
@@ -4104,11 +4112,11 @@ void main(){
   vec3 nw = normalize((vec4(nv, 0.0) * viewMatrix).xyz);
   if (vKind < 0.5){                 // pebble: irregular chunk of granite
     float ang = atan(vQ.y, vQ.x);
-    float edge = 0.72 + 0.18 * sin(ang * 3.0 + vSeed * 20.0) + 0.1 * sin(ang * 5.0 + vSeed * 7.0);
+    float edge = 0.82 + 0.1 * sin(ang * 3.0 + vSeed * 20.0) + 0.06 * sin(ang * 5.0 + vSeed * 7.0);
     if (r > edge) discard;
     float facet = floor((ang + 3.1416) / 1.2566 + vSeed * 3.0);
-    vec3 fn = normalize(nw + (vec3(sin(facet * 2.1), cos(facet * 1.7), sin(facet * 3.3)) - 0.5) * 0.6);
-    vec3 base = vec3(0.26, 0.24, 0.22) * (0.75 + 0.5 * fract(vSeed * 13.7));
+    vec3 fn = normalize(nw + (vec3(sin(facet * 2.1), cos(facet * 1.7), sin(facet * 3.3)) - 0.5) * 0.35);
+    vec3 base = vec3(0.3, 0.29, 0.28) * (0.7 + 0.5 * fract(vSeed * 13.7));
     col = litSprite(vWPos, fn, 0.0) * base; a = 1.0;
   } else if (vKind < 1.5){          // droplet: a tiny lens of sky with a sun glint
     if (r > 1.0) discard;
@@ -4134,7 +4142,7 @@ void main(){
     col *= softFade(vViewZ, 0.3);
     gl_FragColor = vec4(col, 0.0); return;
   }
-  a *= softFade(vViewZ, 0.05);
+  a *= softFade(vViewZ, 0.05) * smoothstep(0.45, 1.1, vViewZ);   // nothing flat-looking right on the lens
   gl_FragColor = vec4(col * a, a);
 }`;
 
@@ -4270,12 +4278,13 @@ const RIGIDS = [];
 
 // jagged chunk geometry (convex-ish, flat-shaded facets)
 function chunkGeometry(seed, sx = 1, sy = 1, sz = 1, detail = 0) {
-  const r = new RNG(seed);
   const g = new THREE.IcosahedronGeometry(1, detail);
   const p = g.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    const k = 0.62 + r.f(0, 0.5);
-    p.setXYZ(i, p.getX(i) * sx * k, p.getY(i) * sy * k, p.getZ(i) * sz * k);
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    // keyed on position so the duplicated vertices of each corner move together (closed, faceted solid)
+    const k = 0.66 + 0.46 * fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 19.3) * 43758.5453);
+    p.setXYZ(i, x * sx * k, y * sy * k, z * sz * k);
   }
   const ng = g.index ? g.toNonIndexed() : g; ng.computeVertexNormals();
   return ng;
@@ -4812,12 +4821,18 @@ function waterTarget(u, T, out) {
     r += (0.1 - 0.025 * u) * w.wrap;
   }
   if (w.coil > 0) {
+    // snake creeps down: the stream runs low along the ground from the lead palm, round behind the
+    // rear foot and up into the hooked hand — loaded like a drawn whip
     const d = toP1Dir(F, _we);
-    const c = _wa.copy(F).addScaledVector(d, -0.42).setY(0.98);
-    const ang = -(T - t.coil) * 14.0 - u * 9.4;
-    const rad = 0.3 + 0.16 * u;
-    _wf.set(c.x + Math.sin(ang) * rad, c.y + (u - 0.5) * 0.3 + Math.sin(ang) * 0.1, c.z + Math.cos(ang) * rad);
-    _wf.lerp(palms, (1 - smoothstep(0, 0.18, u)) * 0.8);
+    const A = _wa.copy(FIG.palm_L);
+    const B = _wb.copy(FIG.p.foot_R).addScaledVector(d, -0.55).setY(0.12);
+    const C = _wc.copy(FIG.palm_R);
+    const mid = _wd.copy(FIG.p.foot_L).lerp(FIG.p.foot_R, 0.5).setY(0.08);
+    // quadratic chain A → mid → B → C
+    const s = u * 3;
+    if (s < 1) _wf.copy(A).lerp(mid, s); else if (s < 2) _wf.copy(mid).lerp(B, s - 1); else _wf.copy(B).lerp(C, Ease.inOutSine(s - 2));
+    const wig = Math.sin(u * 14 - (T - t.coil) * 20) * 0.05 * Math.sin(u * Math.PI);
+    _wf.x += wig * d.z; _wf.z -= wig * d.x;
     out.addScaledVector(_wf, w.coil);
     r += (0.1 - 0.02 * u) * w.coil;
   }
@@ -4826,8 +4841,9 @@ function waterTarget(u, T, out) {
     const k = Ease.outCubic(clamp((T - t.whip) / (t.reach - t.whip)));
     const L = 2.62 * k;
     const along = (1 - u) * L;
-    _wf.copy(palms).addScaledVector(d, along).addScaledVector(side, 0.28 * (1 - u) * k);
-    _wf.y = lerp(palms.y, 1.3, (1 - u) * k) + Math.sin((1 - u) * Math.PI) * 0.12;
+    const lead = FIG.palm_L;
+    _wf.copy(lead).addScaledVector(d, along).addScaledVector(side, 0.28 * (1 - u) * k);
+    _wf.y = lerp(lead.y, 1.3, (1 - u) * k) + Math.sin((1 - u) * Math.PI) * 0.12;
     // travelling S-wave that dies as the whip straightens
     const amp = 0.22 * (1 - k) + 0.02;
     const wv = Math.sin(u * 9.0 - (T - t.whip) * 38.0) * amp * Math.sin(u * Math.PI);
@@ -4843,8 +4859,10 @@ function spearFrame(T) {
   const S = WATER.spear;
   const F = FIG.p.hips, palms = FIG.palms;
   if (!S.fixed) {
-    const d = S.dir.copy(WATER.hitPoint).sub(palms).normalize();
-    S.base.copy(palms).addScaledVector(d, 0.18);
+    // the spear condenses off the lead palm, then settles between both palms for the push
+    const anchor = _wd.copy(FIG.palm_L).lerp(palms, smoothstep(15.8, 16.0, T));
+    const d = S.dir.copy(WATER.hitPoint).sub(anchor).normalize();
+    S.base.copy(anchor).addScaledVector(d, 0.18);
   }
   return S;
 }
@@ -4953,7 +4971,7 @@ function updateWater(T, dt) {
     const sp = _v2.copy(S.base).addScaledVector(S.dir, SPEAR_L * (1 - u)).add(flyOff);
     const spR = 0.1 * Math.pow(Math.sin(Math.PI * clamp(Math.pow(1 - u, 0.55), 0, 1) * 0.999 + 0.001), 0.8) * (u > 0.97 ? 0.6 : 1);
     // far part of the frozen whip breaks away when the spear condenses
-    const dist = nd.fz.distanceTo(FIG.palms);
+    const dist = nd.fz.distanceTo(FIG.palm_L);
     const keep = T < t.crack ? 1 : (dist < 1.9 ? 1 : 0);
     const p = V3().copy(nd.fz).lerp(sp, form);
     pts.push(p); radii.push(lerp(iceR * keep, spR, form));
@@ -4981,7 +4999,7 @@ function updateWater(T, dt) {
 function iceCrack(ctx) {
   const N = WATER.N; let spawned = 0;
   for (let i = 0; i < N; i += 2) {
-    const nd = WATER.nodes[i]; if (nd.fz.distanceTo(FIG.palms) < 1.9) continue;
+    const nd = WATER.nodes[i]; if (nd.fz.distanceTo(FIG.palm_L) < 1.9) continue;
     ICE.shards.spawn({ pos: nd.fz, vel: V3((Math.random() - 0.5) * 0.8, Math.random() * 0.6, (Math.random() - 0.5) * 0.8), scale: 0.035 + Math.random() * 0.03, slide: 1 }); spawned++;
     PS.debris.emit({ count: 12, scale: 1, pos: nd.fz, radius: 0.06, vel: V3(0, 0.3, 0), spread: 1.2, life: [0.8, 1.6], size: [0.004, 0.01], kind: 3 });
     PS.smoke.emit({ count: 1, scale: 1, pos: nd.fz, radius: 0.05, vel: V3(0, 0, 0), spread: 0.3, life: [0.8, 1.4], size: [0.05, 0.1], kind: 2 });
@@ -5036,6 +5054,397 @@ fxModule({
     else TERRAIN_U.uSpotK.value.x = 0;
   },
   present(dtReal) { updateLensDrops(dtReal); },
+});
+
+// ---- 14-earth.js ----
+// §14 EARTH — the stomp (shockwave, crack network, dust, jumping pebbles), three slabs torn from
+// the summit that hover and grind, are punched into the pillars and the lip boulder and burst into
+// rigid fragments, and the stone column that erupts under the camera.
+const EARTH = {
+  t: { stomp: 22.3, tear: [23.05, 23.3, 23.55], launch: [25.36, 25.76, 26.75], rise: 30.08 },
+  slabs: [], rock: null, pillar: null, pillarH: 3.2, flight: 24, crackR: 7.2, stompAt: V3(0.46, 0, 0.06),
+};
+// slab hover spots in the body frame of the rooted stance (E0 = [0, 0.1], yaw 180°): x left, z forward
+const SLAB_DEFS = [
+  { b: [0.24, 1.02], h: 1.22, target: 'P2', seed: 5, rot: 0.3 },     // left punch
+  { b: [-0.22, 1.02], h: 1.04, target: 'P3', seed: 9, rot: -0.4 },   // right punch
+  { b: [-0.78, 0.55], h: 1.28, target: 'B1', seed: 13, rot: 1.1 },   // spinning back fist
+];
+
+function slabGeometry(seed, w = 1.15, t = 0.26, d = 0.78) {
+  const g = new THREE.BoxGeometry(w, t, d, 10, 2, 7);
+  const p = g.attributes.position, o = seed * 3.7;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const ex = Math.abs(x) / (w / 2), ez = Math.abs(z) / (d / 2);
+    const edge = Math.max(ex, ez);
+    // torn outline: pull the rim in by noise
+    const k = 1 - 0.16 * Math.max(0, Noise.n2(x * 5 + o, z * 5 - o) * 0.5 + 0.5) * smoothstep(0.7, 1, edge);
+    x *= k; z *= k;
+    if (y < 0) y -= 0.07 * (Noise.fbm2(x * 3 + o, z * 3, 3) * 0.5 + 0.5) + 0.05 * (1 - edge);   // ragged underside
+    else y += 0.012 * Noise.n2(x * 6 + o, z * 6);
+    p.setXYZ(i, x, y, z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+function eruptGeometry(seed, H) {
+  const g = new THREE.CylinderGeometry(0.44, 0.62, H, 7, 16, false);
+  const p = g.attributes.position, o = seed * 1.9;
+  for (let i = 0; i < p.count; i++) {
+    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const r = Math.hypot(x, z) || 1; const a = Math.atan2(z, x);
+    const top = y > H / 2 - 1e-3;
+    let dr = 1 + 0.08 * Noise.n2(a * 2 + o, y * 1.3) + 0.04 * Noise.n2(a * 6, y * 5 + o);
+    if (top) { y += 0.28 * (Noise.n2(x * 4 + o, z * 4) * 0.5 + 0.5) - 0.1 * r; }
+    else if (y > H / 2 - 0.35) { dr *= 1 - 0.1 * smoothstep(H / 2 - 0.35, H / 2, y); }
+    p.setXYZ(i, x * dr, y + H / 2, z * dr);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+function targetPoint(name, from, out) {
+  if (name === 'B1') { const b = LAYOUT.boulders[0]; const d = _v1.set(b.x - from.x, 0, b.z - from.z).normalize(); return out.set(b.x - d.x * b.s * 0.95, groundHeight(b.x, b.z) + 0.45 * b.s, b.z - d.z * b.s * 0.95); }
+  const pd = LAYOUT.pillars.find((q) => q.id === name); const d = _v1.set(pd.x - from.x, 0, pd.z - from.z).normalize();
+  return out.set(pd.x - d.x * pd.r * 0.95, 1.25, pd.z - d.z * pd.r * 0.95);
+}
+
+function initEarth() {
+  const mat = WORLD.stoneMat;
+  EARTH.rock = new RigidPool('rock', [chunkGeometry(31, 1, 0.7, 0.8, 1), chunkGeometry(32, 0.8, 1, 0.6, 1), chunkGeometry(33, 1.1, 0.5, 0.9, 1), chunkGeometry(34, 0.7, 0.6, 0.7, 1)], mat, 160, { restitution: 0.22, friction: 0.6 });
+  const E0 = [0, 0.1], yaw = 180;
+  SLAB_DEFS.forEach((d, i) => {
+    const m = new THREE.Mesh(slabGeometry(d.seed), mat); m.castShadow = m.receiveShadow = true; m.visible = false; world.add(m);
+    const [x, z] = bw(E0, yaw, d.b[0], d.b[1]);
+    const home = V3(x, groundHeight(x, z), z);
+    const hover = V3(x, d.h, z);
+    const target = targetPoint(d.target, hover, V3());
+    EARTH.slabs.push({ def: d, mesh: m, home, hover, target, q: new THREE.Quaternion(), tear: EARTH.t.tear[i], launch: EARTH.t.launch[i],
+      hit: EARTH.t.launch[i] + hover.distanceTo(target) / EARTH.flight, pit: i, broke: false });
+  });
+  const ep = LAYOUT.eruptPillar;
+  EARTH.pillar = new THREE.Mesh(eruptGeometry(21, EARTH.pillarH), mat); EARTH.pillar.castShadow = EARTH.pillar.receiveShadow = true;
+  EARTH.pillar.position.set(ep.x, -EARTH.pillarH - 0.5, ep.z); EARTH.pillar.rotation.y = 0.7; EARTH.pillar.visible = false; world.add(EARTH.pillar);
+}
+
+// ---- beats --------------------------------------------------------------------------------------
+function stompBurst(ctx) {
+  const c = EARTH.stompAt.copy(FIG.p.foot_R); c.y = groundHeight(c.x, c.z);
+  if (ctx.skipped) return;
+  hitStop(4); addTrauma(0.6);
+  PS.smoke.emit({ count: 70, pos: V3(c.x, c.y + 0.05, c.z), radius: 0.35, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.2, 0), spread: 5.5, life: [1.4, 2.8], size: [0.14, 0.28], kind: 1, param: 0.4 });
+  PS.smoke.emit({ count: 14, pos: V3(c.x, c.y + 0.1, c.z), radius: 0.3, vel: V3(0, 0.8, 0), spread: 1.0, life: [1.2, 2.2], size: [0.2, 0.36], kind: 1, param: 0.6 });
+  // pebbles jump across the whole plateau, more near the foot
+  PS.debris.emit({ count: 260, pos: V3(c.x, c.y + 0.03, c.z), radius: 2.6, vel: V3(0, 2.2, 0), spread: 1.3, life: [1.6, 3.0], size: [0.012, 0.03], kind: 0 });
+  PS.debris.emit({ count: 120, pos: V3(c.x, c.y + 0.03, c.z), radius: 0.7, vel: V3(0, 3.2, 0), spread: 2.2, life: [1.4, 2.6], size: [0.02, 0.045], kind: 0 });
+  for (let i = 0; i < 8; i++) EARTH.rock.spawn({ pos: V3(c.x + (Math.random() - 0.5) * 0.8, c.y + 0.05, c.z + (Math.random() - 0.5) * 0.8), vel: V3((Math.random() - 0.5) * 2.5, 2 + Math.random() * 2.5, (Math.random() - 0.5) * 2.5), scale: 0.03 + Math.random() * 0.04 });
+  FIELD.shock.set(c.x, c.y, c.z, 0); FIELD.shock2.set(0.5, 9, 0, 0); EARTH.shockT = TL.T;
+  sfx('stomp', { pos: c, gain: 1 });
+}
+function slabTear(i, ctx) {
+  const S = EARTH.slabs[i]; const c = S.home;
+  if (ctx.skipped) return;
+  addTrauma(0.18);
+  PS.smoke.emit({ count: 16, pos: V3(c.x, c.y + 0.05, c.z), radius: 0.45, vel: V3(0, 1.0, 0), spread: 1.0, life: [1.2, 2.2], size: [0.12, 0.26], kind: 1, param: 0.5 });
+  PS.debris.emit({ count: 70, pos: V3(c.x, c.y + 0.05, c.z), radius: 0.5, vel: V3(0, 2.6, 0), spread: 1.6, life: [1.2, 2.4], size: [0.015, 0.035], kind: 0 });
+  for (let k = 0; k < 5; k++) EARTH.rock.spawn({ pos: V3(c.x + (Math.random() - 0.5) * 1.0, c.y + 0.1, c.z + (Math.random() - 0.5) * 0.7), vel: V3((Math.random() - 0.5) * 1.5, 2.5 + Math.random() * 2, (Math.random() - 0.5) * 1.5), scale: 0.04 + Math.random() * 0.05 });
+  sfx('tear', { pos: c, gain: 0.9, pitch: 0.9 + i * 0.08 });
+}
+function slabContact(i, ctx) {
+  const S = EARTH.slabs[i];
+  if (ctx.skipped) return;
+  hitStop(i === 2 ? 4 : 3); addTrauma(i === 2 ? 0.35 : 0.25);
+  const p = S.hover;
+  PS.smoke.emit({ count: 20, pos: p, radius: 0.3, vel: V3(0, 0.2, 0), spread: 1.5, life: [0.8, 1.8], size: [0.12, 0.25], kind: 1, param: 0.6 });
+  PS.debris.emit({ count: 60, pos: p, radius: 0.35, vel: _v1.copy(S.target).sub(p).normalize().multiplyScalar(4), spread: 3, life: [1, 2], size: [0.01, 0.03], kind: 0 });
+  sfx('punchRock', { pos: p, gain: 1, pitch: 1 + i * 0.05 });
+}
+function slabImpact(i, ctx) {
+  const S = EARTH.slabs[i]; const hp = S.target; const dir = V3().copy(S.target).sub(S.hover).normalize();
+  const r = new RNG(700 + i * 31);
+  for (let k = 0; k < 24; k++) {
+    const vel = V3().copy(dir).multiplyScalar(r.f(-1.5, 3.5)).add(V3(r.f(-3, 3), r.f(0.5, 5), r.f(-3, 3)));
+    const it = EARTH.rock.spawn({ pos: V3(hp.x + r.f(-0.3, 0.3), hp.y + r.f(-0.2, 0.2), hp.z + r.f(-0.3, 0.3)), vel, scale: r.f(0.05, 0.19), variant: k });
+    if (ctx.skipped) { const a = r.f(0, TAU), d = r.f(0.3, 2.4); it.p.set(hp.x + Math.cos(a) * d, 0, hp.z + Math.sin(a) * d); it.p.y = groundHeight(it.p.x, it.p.z) + it.r * 0.55; it.vel.set(0, 0, 0); it.w.set(0, 0, 0); it.sleep = 1; }
+  }
+  if (ctx.skipped) return;
+  addTrauma(0.2); hitStop(2);
+  PS.smoke.emit({ count: 70, pos: hp, radius: 0.5, vel: V3().copy(dir).multiplyScalar(-1.2).add(V3(0, 0.6, 0)), spread: 1.6, life: [2, 4], size: [0.3, 0.6], kind: 1, param: 0.7 });
+  PS.debris.emit({ count: 160, pos: hp, radius: 0.4, vel: V3().copy(dir).multiplyScalar(-2).add(V3(0, 2, 0)), spread: 3.5, life: [1.2, 2.6], size: [0.012, 0.035], kind: 0 });
+  sfx('rockImpact', { pos: hp, gain: 1 });
+}
+function eruption(ctx) {
+  const ep = LAYOUT.eruptPillar; const c = V3(ep.x, groundHeight(ep.x, ep.z), ep.z);
+  const r = new RNG(3030);
+  for (let k = 0; k < 22; k++) {
+    const a = r.f(0, TAU), sp = r.f(1.5, 4.5);
+    const it = EARTH.rock.spawn({ pos: V3(c.x + Math.cos(a) * 0.6, c.y + 0.1, c.z + Math.sin(a) * 0.6), vel: V3(Math.cos(a) * sp, r.f(3, 7), Math.sin(a) * sp), scale: r.f(0.05, 0.16), variant: k });
+    if (ctx.skipped) { const d = r.f(0.8, 3); it.p.set(c.x + Math.cos(a) * d, 0, c.z + Math.sin(a) * d); it.p.y = groundHeight(it.p.x, it.p.z) + it.r * 0.55; it.vel.set(0, 0, 0); it.w.set(0, 0, 0); it.sleep = 1; }
+  }
+  if (ctx.skipped) return;
+  hitStop(5); addTrauma(0.85);
+  PS.smoke.emit({ count: 70, pos: V3(c.x, c.y + 0.1, c.z), radius: 0.7, mode: 2, normal: V3(0, 1, 0), vel: V3(0, 0.5, 0), spread: 4.5, life: [1.8, 3.4], size: [0.22, 0.42], kind: 1, param: 0.5 });
+  PS.smoke.emit({ count: 26, pos: V3(c.x, c.y + 1.0, c.z), radius: 0.6, vel: V3(0, 3.0, 0), spread: 1.4, life: [1.4, 2.6], size: [0.22, 0.42], kind: 1, param: 0.7 });
+  PS.debris.emit({ count: 320, pos: V3(c.x, c.y + 0.1, c.z), radius: 0.8, vel: V3(0, 5, 0), spread: 3, life: [1.5, 3], size: [0.012, 0.04], kind: 0 });
+  sfx('erupt', { pos: c, gain: 1 });
+}
+
+// ---- per frame ------------------------------------------------------------------------------------
+const _eq = new THREE.Quaternion(), _ee = new THREE.Euler();
+function updateEarth(T, dt) {
+  const t = EARTH.t;
+  // crack network races out from the stomp and stays
+  const ck = T >= t.stomp ? Ease.outCubic(clamp((T - t.stomp) / 0.32)) : 0;
+  if (ck > 0) TERRAIN_U.uCrack.value.set(EARTH.stompAt.x, EARTH.stompAt.z, EARTH.crackR * ck, 1);
+  else TERRAIN_U.uCrack.value.set(0, 0, 0, 0);
+  // stomp shockwave: ground-hugging refraction ring + particle push
+  const st = T - t.stomp;
+  if (st > 0 && st < 0.7) {
+    const R = st * 11;
+    FIELD.shock.set(EARTH.stompAt.x, EARTH.stompAt.y + 0.1, EARTH.stompAt.z, R); FIELD.shock2.set(0.6, 14 * (1 - st / 0.7), 0, 0);
+    distortSprite(_v1.set(EARTH.stompAt.x, EARTH.stompAt.y + 0.2, EARTH.stompAt.z), R + 0.5, 0.05 * (1 - st / 0.7), 1, R / (R + 0.5), 0.3);
+  } else if (st >= 0.7 && st < 0.75) FIELD.shock2.y = 0;
+  // slabs
+  EARTH.slabs.forEach((S, i) => {
+    const m = S.mesh; const d = S.def;
+    if (T < S.tear || T >= S.hit) {
+      m.visible = false;
+      TERRAIN_U.uPits.value[i].set(S.home.x, S.home.z, 0.6, T >= S.tear ? 1 : 0);
+      return;
+    }
+    m.visible = true;
+    TERRAIN_U.uPits.value[i].set(S.home.x, S.home.z, 0.6, 1);
+    const pos = m.position;
+    const lt = T - S.tear;
+    if (T < S.launch) {
+      // tear (fast), then a laboured rise with the palms, then hover and grind
+      const tear = Ease.outBack(clamp(lt / 0.32));
+      const lift = Ease.inOutSine(clamp((T - 23.6) / 1.25));
+      const y0 = S.home.y - 0.1;
+      pos.set(S.home.x, lerp(y0, y0 + 0.45, tear), S.home.z);
+      pos.lerp(S.hover, lift);
+      const bob = Math.sin(T * 2.1 + i * 2) * 0.03 * lift;
+      pos.y += bob;
+      const grind = (T < 24.9 ? 1 : 0.35) * clamp(lt / 0.3);
+      _ee.set(d.rot * 0.15 * tear + Math.sin(T * 17 + i) * 0.012 * grind, d.rot + Math.sin(T * 0.7 + i) * 0.06, Math.sin(T * 1.3 + i * 3) * 0.08 * lift + Math.sin(T * 23 + i * 5) * 0.01 * grind);
+      m.quaternion.setFromEuler(_ee);
+      // grit trickles off the hovering underside
+      if (dt > 0 && lt > 0.25) {
+        PS.debris.emit({ count: rate(14, dt), scale: 1, pos: _v1.set(pos.x, pos.y - 0.18, pos.z), radius: 0.35, vel: V3(0, -0.2, 0), spread: 0.2, life: [0.8, 1.4], size: [0.006, 0.014], kind: 0 });
+        if (Math.random() < dt * 3) PS.smoke.emit({ count: 1, scale: 1, pos: _v1.set(pos.x, pos.y - 0.2, pos.z), radius: 0.3, vel: V3(0, -0.15, 0), spread: 0.1, life: [1.2, 2.2], size: [0.1, 0.2], kind: 1, param: 0.4 });
+      }
+    } else {
+      // launched: fast, flat arc, tumbling about the flight axis
+      const u = clamp((T - S.launch) / (S.hit - S.launch));
+      pos.copy(S.hover).lerp(S.target, u); pos.y += Math.sin(u * Math.PI) * 0.25;
+      const dir = _v2.copy(S.target).sub(S.hover).normalize();
+      _eq.setFromAxisAngle(dir, (T - S.launch) * 14);
+      _ee.set(d.rot * 0.15, d.rot, 0); m.quaternion.setFromEuler(_ee).premultiply(_eq);
+      if (dt > 0) PS.smoke.emit({ count: rate(40, dt), scale: 1, pos, radius: 0.35, vel: V3(0, 0, 0), spread: 0.4, life: [0.8, 1.6], size: [0.12, 0.22], kind: 1, param: 0.5 });
+      distortSprite(pos, 0.8, 0.02, 0, 0, 0);
+    }
+  });
+  // the erupting column
+  const P = EARTH.pillar, ep = LAYOUT.eruptPillar, g0 = groundHeight(ep.x, ep.z);
+  if (T >= t.rise - 0.02) {
+    const k = Ease.outExpo(clamp((T - t.rise) / 0.42));
+    P.visible = true;
+    const shake = T - t.rise < 0.6 ? Math.sin(T * 90) * 0.02 * (1 - (T - t.rise) / 0.6) : 0;
+    P.position.set(ep.x + shake, g0 - EARTH.pillarH - 0.1 + (EARTH.pillarH - 0.15) * k, ep.z);
+    if (dt > 0 && T - t.rise < 0.5) {
+      PS.debris.emit({ count: rate(260, dt), scale: 1, pos: _v1.set(ep.x, g0 + 0.05, ep.z), radius: 0.7, vel: V3(0, 2.5, 0), spread: 1.5, life: [0.8, 1.8], size: [0.01, 0.03], kind: 0 });
+      PS.smoke.emit({ count: rate(40, dt), scale: 1, pos: _v1.set(ep.x, g0 + 0.1, ep.z), radius: 0.7, vel: V3(0, 1.2, 0), spread: 1.0, life: [1.2, 2.4], size: [0.18, 0.34], kind: 1, param: 0.5 });
+      // grit sliding off the rising top
+      PS.debris.emit({ count: rate(60, dt), scale: 1, pos: _v1.set(ep.x, P.position.y + EARTH.pillarH, ep.z), radius: 0.4, vel: V3(0, 1.5, 0), spread: 1.4, life: [1, 2], size: [0.01, 0.03], kind: 0 });
+    }
+  } else P.visible = false;
+}
+
+fxModule({
+  init() {
+    initEarth();
+    const t = EARTH.t;
+    at(t.stomp, (ctx) => stompBurst(ctx), 'stomp');
+    at(22.2, () => sfx('knee', { gain: 0.5 }), 'knee');
+    t.tear.forEach((tt, i) => at(tt, (ctx) => slabTear(i, ctx), 'tear ' + i));
+    EARTH.slabs.forEach((S, i) => {
+      at(S.launch, (ctx) => slabContact(i, ctx), 'contact ' + i);
+      atState(S.hit, (ctx) => slabImpact(i, ctx), 'impact ' + i);
+    });
+    atState(t.rise, (ctx) => eruption(ctx), 'erupt');
+    warp(t.stomp + 0.02, t.stomp + 0.34, 0.45, 0.06);        // the shock rolls out slightly slowed
+    warp(t.rise + 0.02, t.rise + 0.55, 0.4, 0.08);
+  },
+  reset() { EARTH.shockT = -1; TERRAIN_U.uCrack.value.set(0, 0, 0, 0); for (const v of TERRAIN_U.uPits.value) v.set(0, 0, 0, 0); },
+  update(T, dt) { updateEarth(T, dt); },
+});
+
+// ---- 15-fire.js ----
+// §15 FIRE — flames kindled in the fists, jabs that throw fireballs with white-hot cores, kicks
+// that leave arcs of flame and heat haze, the sustained double-palm torrent that lights the
+// summit, then the abrupt cut to drifting embers and smoking scorch.
+const FIRE = {
+  t: { ignite: 35.3, jabs: [36.27, 36.62, 36.97, 37.32, 37.67], kick1: [38.28, 38.74], kick2: [39.16, 39.62], swell: 40.9, torrent: 42.05, cut: 44.05, end: 47 },
+  balls: [], arc: [], scorch: [], heat: 0, torrentLight: 0, flicker: 0,
+};
+const FIRE_COL = new THREE.Color(1.0, 0.46, 0.14);
+function fireDir(out, pitch = 0) {
+  const yaw = (CHAR.pose.yaw || 0) * DEG;
+  return out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+}
+
+// ---- fireballs --------------------------------------------------------------------------------------
+function launchFireball(i, ctx) {
+  const side = i % 2 === 0 ? 'L' : 'R';
+  const from = FIG['palm_' + side].clone();
+  const d = fireDir(V3(), -0.02);
+  // aim loosely at the pillar on the left edge; alternate shots flare a little wide
+  const P4 = LAYOUT.pillars[3]; const to = V3(P4.x, 1.35 + (i % 3) * 0.12, P4.z);
+  const aim = to.sub(from).normalize();
+  d.lerp(aim, 0.75).normalize();
+  const spread = [0, 0.07, -0.05, 0.1, -0.02][i];
+  d.applyAxisAngle(_v1.set(0, 1, 0), spread);
+  FIRE.balls.push({ p: from, v: d.multiplyScalar(19), age: 0, life: 1.1, hit: false, last: from.clone(), i });
+  if (!ctx.skipped) {
+    PS.fire.emit({ count: 60, pos: from, radius: 0.08, vel: _v2.copy(d).multiplyScalar(0.3), spread: 2.2, life: [0.15, 0.35], size: [0.05, 0.1], kind: 3 });
+    PS.fire.emit({ count: 26, pos: from, radius: 0.05, vel: _v2.copy(d).multiplyScalar(0.4), spread: 4, life: [0.3, 0.7], size: [0.004, 0.008], kind: 2 });
+    addTrauma(0.12); hitStop(2);
+    sfx('fireball', { pos: from, gain: 0.9, pitch: 0.95 + i * 0.04 });
+  }
+}
+function updateFireballs(T, dt) {
+  const P4 = LAYOUT.pillars[3];
+  for (const b of FIRE.balls) {
+    if (b.hit || b.age > b.life) continue;
+    if (dt > 0) {
+      b.last.copy(b.p); b.age += dt; b.p.addScaledVector(b.v, dt); b.v.y -= 0.6 * dt;
+      const seg = b.p.distanceTo(b.last);
+      const grow = 1 + b.age * 0.8;
+      PS.fire.emit({ count: seg * 80, pos: b.last, pos2: b.p, radius: 0.05 * grow, vel: _v1.copy(b.v).multiplyScalar(0.15), spread: 0.6, life: [0.18, 0.42], size: [0.05 * grow, 0.1 * grow], kind: 0, param: 0.9 });
+      PS.fire.emit({ count: seg * 36, pos: b.last, pos2: b.p, radius: 0.03, vel: _v1.copy(b.v).multiplyScalar(0.3), spread: 0.3, life: [0.08, 0.18], size: [0.04, 0.07], kind: 3 });
+      PS.smoke.emit({ count: seg * 3, pos: b.last, pos2: b.p, radius: 0.08 * grow, vel: V3(0, 0.5, 0), spread: 0.3, life: [1.0, 2.0], size: [0.08, 0.16], kind: 0, param: 0.8 });
+      PS.fire.emit({ count: seg * 4, pos: b.p, radius: 0.1, vel: _v1.copy(b.v).multiplyScalar(0.3), spread: 1.5, life: [1.0, 2.2], size: [0.004, 0.008], kind: 1, param: 0.6 });
+      // strike the pillar
+      const dx = b.p.x - P4.x, dz = b.p.z - P4.z;
+      if (Math.hypot(dx, dz) < P4.r + 0.12 && b.p.y < P4.h) { b.hit = true; fireballImpact(b, T); }
+      if (b.p.y < groundHeight(b.p.x, b.p.z) + 0.05) { b.hit = true; fireballImpact(b, T); }
+    }
+    const fade = 1 - smoothstep(b.life - 0.25, b.life, b.age);
+    glow(b.p, 0.09, 14 * fade, 9 * fade, 4 * fade, 0.3);
+    distortSprite(b.p, 0.45, 0.035 * fade, 0, 0, 0);
+  }
+}
+function fireballImpact(b, T) {
+  const n = V3(b.p.x - LAYOUT.pillars[3].x, 0, b.p.z - LAYOUT.pillars[3].z).normalize();
+  PS.fire.emit({ count: 220, pos: b.p, radius: 0.15, vel: _v1.copy(n).multiplyScalar(1.5).add(V3(0, 1.2, 0)), spread: 3.2, life: [0.3, 0.8], size: [0.1, 0.22], kind: 0, param: 1 });
+  PS.fire.emit({ count: 90, pos: b.p, radius: 0.1, vel: _v1.copy(n).multiplyScalar(3), spread: 5, life: [0.4, 0.9], size: [0.004, 0.009], kind: 2 });
+  PS.fire.emit({ count: 40, pos: b.p, radius: 0.2, vel: V3(0, 0.6, 0), spread: 1.5, life: [1.5, 3], size: [0.005, 0.009], kind: 1, param: 0.8 });
+  PS.smoke.emit({ count: 22, pos: b.p, radius: 0.25, vel: V3(0, 0.9, 0), spread: 0.6, life: [1.8, 3.2], size: [0.2, 0.4], kind: 0, param: 1 });
+  const g = V3(b.p.x + n.x * 0.5, 0, b.p.z + n.z * 0.5);
+  paintMark(g.x, g.z, 0.55, 0, 0.6, 0.6, 0);
+  FIRE.scorch.push({ x: g.x, z: g.z, t: T, k: 0.6 });
+  FIRE.flash = { p: b.p.clone(), t: T };
+  sfx('fireImpact', { pos: b.p, gain: 0.9 });
+}
+
+// ---- per frame ----------------------------------------------------------------------------------------
+function emitFist(side, T, dt, k) {
+  const p = FIG['palm_' + side], v = FIG.v['hand_' + side];
+  const n = 260 * k * dt;
+  PS.fire.emit({ count: n, pos: p, radius: 0.03 * (0.7 + 0.5 * k), vel: _v1.copy(v).multiplyScalar(0.45).add(_v2.set(0, 0.3, 0)), spread: 0.25, life: [0.22, 0.45], size: [0.018 * (0.7 + 0.6 * k), 0.042 * (0.7 + 0.6 * k)], kind: 0, param: 0.75 });
+  PS.fire.emit({ count: 50 * k * dt, pos: p, radius: 0.03, vel: _v1.copy(v).multiplyScalar(0.3), spread: 0.2, life: [0.1, 0.2], size: [0.025, 0.04], kind: 3 });
+  if (Math.random() < dt * 6 * k) PS.fire.emit({ count: 1, scale: 1, pos: p, radius: 0.04, vel: _v1.set(0, 0.8, 0), spread: 0.8, life: [1.0, 2.2], size: [0.003, 0.006], kind: 1, param: 0.6 });
+  if (Math.random() < dt * 5 * k) PS.smoke.emit({ count: 1, scale: 1, pos: _v1.copy(p).add(_v2.set(0, 0.25, 0)), radius: 0.05, vel: _v2.set(0, 0.7, 0), spread: 0.2, life: [1.0, 2.0], size: [0.06, 0.12], kind: 0, param: 0.9 });
+}
+function updateFire(T, dt) {
+  const t = FIRE.t;
+  FIRE.flicker = 0.85 + 0.15 * Math.sin(T * 31) * Math.sin(T * 17.3 + 1);
+  // fists: kindle on the sharp exhale, swell in the gather, hand over to the torrent
+  const pre = win(T, t.ignite - 0.3, t.ignite - 0.02, 0.05, 0.02);
+  const fist = smoothstep(t.ignite - 0.02, t.ignite + 0.12, T) * (1 - smoothstep(t.torrent - 0.08, t.torrent, T));
+  const swell = 1 + 0.8 * smoothstep(t.swell, t.torrent - 0.1, T);
+  FIRE.fist = fist * swell;
+  if (dt > 0) {
+    if (pre > 0 && Math.random() < dt * 20) for (const s of ['L', 'R']) PS.fire.emit({ count: 2, scale: 1, pos: FIG['palm_' + s], radius: 0.03, vel: V3(0, 0.3, 0), spread: 1.2, life: [0.2, 0.4], size: [0.002, 0.004], kind: 2 });
+    if (fist > 0.01) { emitFist('L', T, dt, fist * swell); emitFist('R', T, dt, fist * swell); }
+  }
+  if (fist > 0.01) for (const s of ['L', 'R']) glow(FIG['palm_' + s], 0.035 * swell, 4 * fist * FIRE.flicker, 2.2 * fist * FIRE.flicker, 0.7 * fist, 0.5);
+  updateFireballs(T, dt);
+  // kick arcs: flames stream off the foot while it travels
+  const inK1 = T >= t.kick1[0] && T <= t.kick1[1], inK2 = T >= t.kick2[0] && T <= t.kick2[1];
+  if ((inK1 || inK2) && dt > 0) {
+    const toe = FIG.p.toe_R, v = FIG.v.toe_R; const sp = v.length();
+    const hip = FIG.p.hips; const out = _v3.copy(toe).sub(hip).normalize();
+    const n = sp * dt * 150;
+    PS.fire.emit({ count: n, pos: toe, pos2: FIG.prev.toe_R, radius: 0.06, vel: _v1.copy(v).multiplyScalar(0.22).addScaledVector(out, 1.2), spread: 0.5, life: [0.45, 0.85], size: [0.07, 0.13], kind: 0, param: 0.95 });
+    PS.fire.emit({ count: n * 0.25, pos: toe, pos2: FIG.prev.toe_R, radius: 0.03, vel: _v1.copy(v).multiplyScalar(0.1), spread: 0.3, life: [0.12, 0.25], size: [0.05, 0.08], kind: 3 });
+    PS.fire.emit({ count: n * 0.08, pos: toe, radius: 0.05, vel: _v1.copy(v).multiplyScalar(0.5), spread: 2.5, life: [0.4, 0.8], size: [0.004, 0.008], kind: 2 });
+    FIRE.arc.push({ p: toe.clone(), t: T });
+  }
+  FIRE.arc = FIRE.arc.filter((a) => T - a.t < 0.7 && T >= a.t);
+  for (let i = 0; i < FIRE.arc.length; i += 2) { const a = FIRE.arc[i]; const k = 1 - (T - a.t) / 0.7; distortSprite(a.p, 0.35 + (T - a.t) * 0.6, 0.05 * k, 0, 0, 0); }
+  // torrent
+  const tor = T >= t.torrent && T < t.cut ? Math.min(1, (T - t.torrent) / 0.08) : 0;
+  FIRE.torrent = tor;
+  if (tor > 0) {
+    const d = fireDir(_v4, -0.13); const p = FIG.palms;
+    const side = _v3.set(d.z, 0, -d.x).normalize();
+    if (dt > 0) {
+      PS.fire.emit({ count: 3200 * dt * tor, pos: p, radius: 0.1, vel: _v1.copy(d).multiplyScalar(14.5), spread: 1.7, life: [0.45, 0.85], size: [0.09, 0.2], kind: 0, param: 1 });
+      PS.fire.emit({ count: 700 * dt * tor, pos: p, radius: 0.06, vel: _v1.copy(d).multiplyScalar(17), spread: 0.8, life: [0.18, 0.34], size: [0.06, 0.11], kind: 3 });
+      PS.fire.emit({ count: 170 * dt, pos: p, radius: 0.1, vel: _v1.copy(d).multiplyScalar(13), spread: 4, life: [0.5, 1.1], size: [0.004, 0.009], kind: 2 });
+      PS.fire.emit({ count: 70 * dt, pos: _v2.copy(p).addScaledVector(d, 4), radius: 1.2, vel: _v1.copy(d).multiplyScalar(3).add(V3(0, 1, 0)), spread: 2, life: [1.5, 3], size: [0.004, 0.008], kind: 1, param: 0.9 });
+      PS.smoke.emit({ count: 55 * dt, pos: _v2.copy(p).addScaledVector(d, 6), radius: 1.2, vel: _v1.copy(d).multiplyScalar(2).add(V3(0, 1.5, 0)), spread: 1, life: [2, 3.5], size: [0.35, 0.7], kind: 0, param: 1 });
+      // the ground under the stream scorches and glows
+      if (Math.random() < dt * 30) { const k = 2.5 + Math.random() * 5; const g = _v2.copy(p).addScaledVector(d, k).addScaledVector(side, (Math.random() - 0.5) * 1.2); paintMark(g.x, g.z, 0.35 + k * 0.06, 0, 0.55, 0.55, 0); }
+      if (Math.random() < dt * 4) { const k = 3 + Math.random() * 4; const g = _v2.copy(p).addScaledVector(d, k); FIRE.scorch.push({ x: g.x, z: g.z, t: T, k: 1 }); }
+    }
+    for (let k = 0; k < 4; k++) distortSprite(_v2.copy(p).addScaledVector(d, 1.2 + k * 1.6).add(_v1.set(0, 0.35, 0)), 0.8 + k * 0.4, 0.05, 0, 0, 0);
+    glow(_v2.copy(p).addScaledVector(d, 0.25), 0.14, 12 * tor, 8 * tor, 3.5 * tor, 0.35);
+  }
+  // after the cut: embers drift, scorch marks smoke
+  if (T >= t.cut && T < t.end && dt > 0) {
+    for (const s of FIRE.scorch) if (Math.random() < dt * 1.2 * s.k) PS.smoke.emit({ count: 1, scale: 1, pos: _v1.set(s.x, groundHeight(s.x, s.z) + 0.05, s.z), radius: 0.25, vel: V3(0, 0.45, 0), spread: 0.15, life: [2.5, 4.5], size: [0.12, 0.26], kind: 0, param: 0.15 });
+  }
+  // global warmth while the torrent burns
+  FX_STATE.warm = Math.max(FX_STATE.warm, tor * 0.9, fist * 0.25);
+}
+
+fxModule({
+  init() {
+    const t = FIRE.t;
+    at(t.ignite, (ctx) => {
+      if (ctx.skipped) return;
+      for (const s of ['L', 'R']) PS.fire.emit({ count: 90, pos: FIG['palm_' + s], radius: 0.05, vel: V3(0, 0.6, 0), spread: 1.6, life: [0.2, 0.5], size: [0.04, 0.09], kind: 0, param: 1 });
+      addTrauma(0.1); sfx('ignite', { pos: FIG.palms, gain: 1 });
+    }, 'ignite');
+    t.jabs.forEach((tt, i) => at(tt, (ctx) => launchFireball(i, ctx), 'jab ' + i));
+    at(t.kick1[0] + 0.05, () => sfx('fireWhoosh', { pos: FIG.p.foot_R, gain: 0.9, pitch: 1.1 }), 'kick1');
+    at(t.kick2[0] + 0.05, () => sfx('fireWhoosh', { pos: FIG.p.foot_R, gain: 1, pitch: 0.85 }), 'kick2');
+    at(t.torrent, (ctx) => { addTrauma(0.35); sfx('torrent', { pos: FIG.palms, gain: 1, dur: t.cut - t.torrent }); }, 'torrent');
+    atState(t.cut, (ctx) => {
+      // the abrupt cut: every live flame is gone, only embers remain
+      PS.fire.clear();
+      const d = fireDir(V3(), 0); const p = FIG.palms.clone();
+      PS.fire.emit({ count: 360, pos: p.addScaledVector(d, 3.5), radius: 2.6, vel: V3(0, 0.4, 0), spread: 0.8, life: [2.5, 5], size: [0.004, 0.009], kind: 1, param: 0.7 });
+      FIRE.torrent = 0;
+    }, 'cut');
+    warp(t.kick2[0] + 0.12, t.kick2[1] - 0.05, 0.5, 0.06);   // the heel kick's arc hangs for a beat
+  },
+  reset() { FIRE.balls.length = 0; FIRE.arc.length = 0; FIRE.scorch.length = 0; FIRE.flash = null; FIRE.torrent = 0; FIRE.fist = 0; },
+  update(T, dt) { FX_STATE.warm = 0; updateFire(T, dt); },
+  lights() {
+    const T = TL.T, t = FIRE.t;
+    if (FIRE.fist > 0.01) for (const s of ['L', 'R']) requestLight(FIG['palm_' + s], FIRE_COL, 0.55 * FIRE.fist * FIRE.flicker, 3, 8);
+    for (const b of FIRE.balls) if (!b.hit && b.age < b.life) requestLight(b.p, FIRE_COL, 2.2 * (1 - smoothstep(b.life - 0.25, b.life, b.age)), 4, 12);
+    if (FIRE.flash && T - FIRE.flash.t < 0.35 && T >= FIRE.flash.t) requestLight(FIRE.flash.p, FIRE_COL, 5 * (1 - (T - FIRE.flash.t) / 0.35), 5, 12);
+    if (FIRE.torrent > 0) {
+      const d = fireDir(_v4, -0.13);
+      for (const [k, I] of [[0.6, 4], [3.2, 9], [6.2, 7]]) requestLight(_v1.copy(FIG.palms).addScaledVector(d, k), FIRE_COL, I * FIRE.torrent * FIRE.flicker, 8, 16);
+    }
+    // cooling scorch glow
+    if (T >= t.cut && T < t.cut + 3) requestLight(_v1.copy(FIG.palms).addScaledVector(fireDir(_v2, 0), 4.5).setY(0.3), FIRE_COL, 1.2 * (1 - (T - t.cut) / 3), 2, 8);
+  },
 });
 
 // ---- 17-post.js ----
@@ -5500,6 +5909,7 @@ const LOC = {
   erupt: V3(LAYOUT.eruptPillar.x, 0, LAYOUT.eruptPillar.z),
 };
 const yawTo = (from, to) => Math.atan2(to.x - from.x, to.z - from.z) / DEG;
+const AIR_WALK = { c: [0.9, 0.05], R: 0.9, t0: 47.25, t1: 51.45, steps: 12 };   // Baguazhang circle (Act V)
 const YAW = { pool: yawTo(V3(), LOC.pool), P1: yawTo(V3(), LOC.P1), earth: 180, fire: -72 };
 
 // body-frame (x left, z forward) → world, for a figure standing at `o` with facing yaw°
@@ -5606,17 +6016,19 @@ function buildChoreography() {
     footR: [-0.14, 0.34, 0.07, -6, 0], kneeR: [-0.1, 0.3, 1] }, kneel), 'inOutSine');
   key(3.95, pose({ hip: [0.02, 0.6, 0.06], pelvis: [26, 0], spine: [18, 0, 0], footR: [-0.14, 0.38, 0, -8, 0], kneeR: [-0.1, 0.4, 1],
     armL: [30, -60, 8], armR: [40, -58, 10], elbowL: [40, 20], elbowR: [55, 20] }, kneel), 'inOutQuad');
-  // stand (pushing through the front foot), left foot comes to meet it
-  key(4.75, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.12, 0.0], R: [-0.14, 0.24], h: 0.93, toeL: 8, toeR: 6 }, pelvis: [2, 0], spine: [3, 0, 0], neck: [2, 0, 0], head: [2, 0, 0],
-    face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'palmsUpLow'), 'heavy');
-  // inhale: palms rise
-  key(5.2, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.12, 0.0], R: [-0.14, 0.24], h: 0.95 }, chest: [-4, 0, 0], head: [-3, 0, 0], face: [0.8, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }), 'palmsUpHigh'), 'inOutSine');
-  // left foot steps out into the horse stance
-  key(5.45, arms(pose({ stance: { o: [-0.06, 0.12], yaw: 0, L: [0.18, 0.02], R: [-0.14, 0.12], h: 0.92, liftL: 0.1, heelL: 0.2, hipOff: [-0.08, 0] }, face: [0.8, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }), 'palmsUpHigh'), 'inOutSine');
-  const horse = arms(pose({ stance: { o: [0.12, 0.12], yaw: 0, L: [0.38, 0.0], R: [-0.4, 0.0], h: 0.72, toeL: 16, toeR: 16, knee: 0.7 }, pelvis: [6, 0], spine: [2, 0, 0], neck: [4, 0, 0], head: [4, 0, 0],
-    face: [0.8, 0, 0.1, 0, 0], shapeL: 'palm', shapeR: 'palm' }), 'pressDown');
-  key(5.75, pose({ hip: [0.12, 0.84, 0.12] }, horse), 'inOutSine');
-  key(6.45, horse, 'heavy');                                                  // exhale: palms press, pebbles tremble
+  // stand (pushing through the front foot) and bring the feet together: the scroll's first figure
+  key(4.75, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.085, 0.02], R: [-0.085, 0.02], h: 0.95, toeL: 6, toeR: 6 }, pelvis: [2, 0], spine: [2, 0, 0], neck: [2, 0, 0], head: [2, 0, 0],
+    face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'heavy');
+  // commencing form of the 24-step form: weight settles right, the left foot steps out to shoulder width
+  key(5.05, arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.15, 0.02], R: [-0.085, 0.02], h: 0.94, liftL: 0.045, hipOff: [-0.06, 0] }, face: [0.85, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'inOutSine');
+  const open = pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.17, 0.02], R: [-0.17, 0.02], h: 0.95, toeL: 8, toeR: 8 }, face: [0.8, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' });
+  key(5.3, arms(pose({}, open), 'down'), 'inOutSine');
+  // inhale: the arms float up to shoulder height, palms down, wrists soft, as if lifted by water
+  key(5.95, arms(pose({ chest: [-3, 0, 0], head: [-2, 0, 0], shapeL: 'relax', shapeR: 'relax', face: [0.75, 0, 0, 0, 0] }, open), { arm: [82, -6, 0], elbow: [16, 0], hand: [14, 0, 0] }), 'inOutSine');
+  // exhale: sink, and the palms press down to the waist — the pebbles tremble
+  const horse = arms(pose({ stance: { o: [0, 0.12], yaw: 0, L: [0.21, 0.02], R: [-0.21, 0.02], h: 0.83, toeL: 10, toeR: 10, knee: 0.45 }, pelvis: [5, 0], spine: [2, 0, 0], neck: [2, 0, 0],
+    face: [0.8, 0, 0.1, 0, 0], shapeL: 'palm', shapeR: 'palm' }), { arm: [55, -50, 0], elbow: [42, 0], hand: [-62, 0, 0] });
+  key(6.5, horse, 'heavy');
   key(6.95, pose({ head: [-2, 0, 0], neck: [0, 0, 0], face: [0, 0, 0.2, 0.15, 0.2] }, horse), 'inOutSine'); // eyes open
 
   // ---------------------------------------------------------------- ACT II · WATER (7–20)
@@ -5632,8 +6044,9 @@ function buildChoreography() {
   // slow upward sweep: palms rise, the pool bulges and the column climbs
   key(9.6, arms(pose({ hip: [bowPool.hip[0], 0.86, bowPool.hip[2]], chest: [-6, 0, 0], head: [-10, 0, 0], shapeL: 'open', shapeR: 'open', look: [LOC.pool.x * 0.6, 2.4, LOC.pool.z * 0.6, 0.6] }, bowPool), 'palmsUpHigh'), 'inOutSine');
   // draw the water in: hands come to the chest, weight shifts back
-  key(10.4, arms(pose({ hip: [bowPool.hip[0] - Math.sin(pY * DEG) * 0.12, 0.84, bowPool.hip[2] - Math.cos(pY * DEG) * 0.12], chest: [-2, 0, 0], head: [0, 0, 0], shapeL: 'cup', shapeR: 'cup',
-    look: [0, 0, 0, 0] }, bowPool), { arm: [70, -30, -40], elbow: [95, -40], hand: [-15, 0, 0] }), 'inOutSine');
+  // hold the ball: upper hand palm-down at the chest, lower hand palm-up at the waist, the water gathered between
+  key(10.4, arms(pose({ hip: [bowPool.hip[0] - Math.sin(pY * DEG) * 0.12, 0.84, bowPool.hip[2] - Math.cos(pY * DEG) * 0.12], spine: [2, 8, 0], chest: [-2, 6, 0], head: [0, 0, 0], shapeL: 'cup', shapeR: 'open',
+    look: [0, 0, 0, 0] }, bowPool), { arm: [48, -58, -72], elbow: [62, -70], hand: [-12, 0, 0] }, { arm: [72, -34, 8], elbow: [88, 4], hand: [4, 0, 0] }), 'inOutSine');
   // flowing pivot: turn right through ~180°, arms circling, the ribbon wraps around
   const y1 = pY + 70, y2 = pY + 135, y3 = YAW.P1;
   key(11.1, arms(pose({ stance: { o: [0.05, 0.05], yaw: y1, L: [0.2, 0.15], R: [-0.24, -0.2], h: 0.84, liftR: 0.06, heelR: 0.4 }, spine: [0, 18, 0], chest: [0, 10, 0], shapeL: 'open', shapeR: 'open' }),
@@ -5642,19 +6055,22 @@ function buildChoreography() {
     { arm: [40, 60, -20], elbow: [30, -20], hand: [0, 0, 0] }, { arm: [85, -10, -50], elbow: [40, -50], hand: [-10, 0, 0] }), 'inOutSine');
   const frontP1 = pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.14, 0.42], R: [-0.16, -0.36], h: 0.8, toeL: 4, toeR: 32, knee: 0.4 }, spine: [4, 0, 0], shapeL: 'open', shapeR: 'open', face: [0, 0, 0.4, 0.3, 0.3] });
   key(12.9, arms(pose({ spine: [4, -10, 0], chest: [0, -8, 0] }, frontP1), { arm: [80, 20, -40], elbow: [40, -30], hand: [-10, 0, 0] }, { arm: [70, -10, -30], elbow: [60, -40], hand: [-10, 0, 0] }), 'inOutSine');
-  // coil (anticipation): weight back, torso winds away, both hands drawn to the rear hip
-  const coil = arms(pose({ hip: [frontP1.hip[0] - Math.sin(y3 * DEG) * 0.14, 0.76, frontP1.hip[2] - Math.cos(y3 * DEG) * 0.14], spine: [8, -22, 0], chest: [2, -16, 0], neck: [0, 18, 0], head: [2, 12, 0],
-    shapeL: 'claw', shapeR: 'claw', face: [0, 0, 0.7, 0.5, 0.6] }, frontP1), { arm: [-10, -40, 20], elbow: [100, 30], hand: [-20, 0, 0] }, { arm: [-35, -55, 30], elbow: [95, 40], hand: [-20, 0, 0] });
+  // snake creeps down (anticipation): sink onto the rear leg, the lead leg straight toward the pillar;
+  // the lead hand slides low along it while the rear hand hooks high behind — the water runs along the ground
+  const coil = arms(pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.12, 0.68], R: [-0.2, -0.3], h: 0.44, toeL: 0, toeR: 62, hipOff: [-0.06, -0.24], liftL: 0, pitchL: 0 },
+    pelvis: [22, 0], spine: [26, -10, 0], chest: [8, -6, 0], neck: [-14, 8, 0], head: [-16, 6, 0], kneeL: [0.2, 0.3, 0.2], kneeR: [-0.55, 0.25, 1],
+    shapeL: 'palm', shapeR: 'hook', face: [0, 0, 0.7, 0.5, 0.6] }), { arm: [72, -66, -55], elbow: [6, -55], hand: [-20, 0, 0] }, { arm: [-40, 14, 25], elbow: [12, 0], hand: [78, 0, 0] });
   key(13.85, coil, 'inOutCubic');
-  // WHIP: explosive extension toward P1 / camera
-  const whip = arms(pose({ hip: [frontP1.hip[0] + Math.sin(y3 * DEG) * 0.1, 0.78, frontP1.hip[2] + Math.cos(y3 * DEG) * 0.1], spine: [10, 6, 0], chest: [4, 8, 0], neck: [-4, -6, 0], head: [-4, -8, 0],
-    shapeL: 'claw', shapeR: 'claw', face: [0, 0.35, 0.8, 0.6, 0.2] }, frontP1), { arm: [88, 4, -10], elbow: [8, -20], hand: [-25, 0, 0] }, { arm: [80, 2, -10], elbow: [10, -20], hand: [-25, 0, 0] });
+  // WATER SINGLE WHIP: rise into the bow stance, the lead palm drives the stream at the camera, the hook trails behind
+  const whip = arms(pose({ stance: { o: [-0.05, 0.0], yaw: y3, L: [0.14, 0.52], R: [-0.18, -0.3], h: 0.8, toeL: 2, toeR: 42, hipOff: [0, 0.07] },
+    pelvis: [4, 0], spine: [6, -8, 0], chest: [2, -6, 0], neck: [-4, 6, 0], head: [-4, 6, 0],
+    shapeL: 'palm', shapeR: 'hook', face: [0, 0.35, 0.8, 0.6, 0.2] }), { arm: [86, -2, -8], elbow: [12, -8], hand: [-66, 0, 0] }, { arm: [-40, 6, 22], elbow: [8, 0], hand: [80, 0, 0] });
   key(14.08, whip, 'strike');
   // stop dead — hold while the stream freezes
   key(15.15, pose({ face: [0, 0, 0.8, 0.7, 0.8] }, whip), 'linear');
   // breath, small draw back
-  key(15.85, arms(pose({ hip: [whip.hip[0] - Math.sin(y3 * DEG) * 0.1, 0.8, whip.hip[2] - Math.cos(y3 * DEG) * 0.1], spine: [2, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0, 0, 0.6, 0.4, 0.4] }, whip),
-    { arm: [72, -12, -10], elbow: [55, -10], hand: [-60, 0, 0] }), 'inOutSine');
+  key(15.85, arms(pose({ hip: [whip.hip[0] - Math.sin(y3 * DEG) * 0.14, 0.8, whip.hip[2] - Math.cos(y3 * DEG) * 0.14], spine: [2, 0, 0], chest: [0, 0, 0], neck: [0, 0, 0], head: [0, 0, 0],
+    shapeL: 'palm', shapeR: 'palm', face: [0, 0, 0.6, 0.4, 0.4] }, whip), { arm: [72, -14, -10], elbow: [62, -10], hand: [-62, 0, 0] }), 'inOutSine');
   // single push launches the spear
   const push = arms(pose({ stance: { o: [0.1 * Math.sin(y3 * DEG), 0.1 * Math.cos(y3 * DEG)], yaw: y3, L: [0.14, 0.5], R: [-0.16, -0.3], h: 0.78, toeR: 30 }, spine: [8, 0, 0], chest: [4, 0, 0],
     shapeL: 'palm', shapeR: 'palm', face: [0, 0.4, 0.8, 0.5, 0] }), { arm: [86, -6, -5], elbow: [6, -10], hand: [-72, 0, 0] });
@@ -5719,21 +6135,24 @@ function buildChoreography() {
   const fY = YAW.fire; const F0 = [0.1, 0.15];
   const fStance = pose({ stance: { o: F0, yaw: fY, L: [0.16, 0.26], R: [-0.18, -0.24], h: 0.84, toeL: 6, toeR: 28, knee: 0.4 }, spine: [2, 0, 0], shapeL: 'relax', shapeR: 'relax', face: [0.2, 0, 0.2, 0.1, 0] });
   key(34.2, arms(pose({}, fStance), 'relaxFront'), 'inOutSine');
-  // deep inhale, fists rise to the chin
-  key(35.05, arms(pose({ chest: [-6, 0, 0], head: [-4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0.2, 0, 0.6, 0.4, 0.6] }, fStance), { arm: [58, -40, 40], elbow: [130, 60], hand: [-10, 0, 0] }), 'inOutSine');
-  // sharp exhale: flames ignite in the fists
-  const fGuard = arms(pose({ chest: [2, 0, 0], head: [4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0.3, 0.9, 0.7, 0.2] }, fStance), { arm: [56, -44, 40], elbow: [124, 60], hand: [-6, 0, 0] });
+  // deep inhale (the scroll's 息氣火 — breath, energy, fire): fists rise to the chest
+  key(35.05, arms(pose({ chest: [-6, 0, 0], head: [-4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0.2, 0, 0.6, 0.4, 0.6] }, fStance), { arm: [48, -54, 38], elbow: [112, 58], hand: [-8, 0, 0] }), 'inOutSine');
+  // sharp exhale: flames ignite in the fists, below the face
+  const fGuard = arms(pose({ chest: [2, 0, 0], head: [4, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0.3, 0.9, 0.7, 0.2] }, fStance), { arm: [46, -50, 36], elbow: [108, 56], hand: [-6, 0, 0] });
   key(35.3, fGuard, 'outCubic');
-  key(35.9, pose({ face: [0, 0, 0.9, 0.6, 0.6] }, fGuard), 'linear');
+  key(35.85, pose({ face: [0, 0, 0.9, 0.6, 0.6] }, fGuard), 'linear');
+  // Northern Shaolin chamber: both fists drawn to the hips, palms up; every jab fires from here
+  const fChamber = arms(pose({ chest: [0, 0, 0], head: [2, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0, 0.9, 0.6, 0.6] }, fStance), 'chamber');
+  key(36.08, fChamber, 'inOutSine');
   const jabTimes = [36.2, 36.55, 36.9, 37.25, 37.6];
   jabTimes.forEach((t, i) => {
     const L = i % 2 === 0;
     const tgt = L ? [0.06, 0.52, 0.78, 1] : [-0.02, 0.5, 0.8, 1];
-    const jab = pose(L ? { ikL: tgt, poleL: [0.7, -0.5, -0.2], elbowL: [0, -40], spine: [4, -10, 0], chest: [2, -6, 0] } : { ikR: tgt, poleR: [-0.7, -0.5, -0.2], elbowR: [0, -40], spine: [4, 12, 0], chest: [2, 8, 0] }, fGuard);
+    const jab = pose(L ? { ikL: tgt, poleL: [0.7, -0.5, -0.2], elbowL: [0, -40], spine: [4, -10, 0], chest: [2, -6, 0] } : { ikR: tgt, poleR: [-0.7, -0.5, -0.2], elbowR: [0, -40], spine: [4, 12, 0], chest: [2, 8, 0] }, fChamber);
     jab.face = [0, 0.5, 1, 0.7, 0];
-    key(t - 0.02, pose(L ? { spine: [2, 6, 0] } : { spine: [2, -6, 0] }, fGuard), 'inOutSine');
+    key(t - 0.02, pose(L ? { spine: [2, 6, 0] } : { spine: [2, -6, 0] }, fChamber), 'inOutSine');
     key(t + 0.07, jab, 'strike');
-    key(t + 0.26, pose({}, fGuard), 'outCubic');
+    key(t + 0.26, pose({}, fChamber), 'outCubic');
   });
   // rising kick (right leg) → vertical flame arc
   const kickSet = arms(pose({ stance: { o: F0, yaw: fY, L: [0.14, 0.22], R: [-0.16, -0.1], h: 0.88, toeL: 10, heelR: 0.3 }, spine: [2, 0, 0], shapeL: 'fist', shapeR: 'fist', face: [0, 0, 1, 0.6, 0.5] }), 'guard');
@@ -5764,28 +6183,63 @@ function buildChoreography() {
   key(46.8, arms(pose({ stance: { o: [0, 0.05], yaw: 360, L: [0.14, 0.0], R: [-0.14, 0.0], h: 0.93 }, shapeL: 'relax', shapeR: 'relax', face: [0.2, 0, 0, 0, 0] }), 'down'), 'inOutSine');
 
   // ---------------------------------------------------------------- ACT V · AIR (47–58)
+  // Baguazhang circle walking: the low mud-wading step around a small circle, the lead palm held
+  // toward the centre where the wind gathers; a palm change, then the spiral that lifts the body.
   const aY = 360; const A0 = [0, 0.05];
-  const aBase = pose({ stance: { o: A0, yaw: aY, L: [0.2, 0], R: [-0.2, 0], h: 0.9, toeL: 12, toeR: 12, knee: 0.4 }, shapeL: 'open', shapeR: 'open', face: [0.3, 0, 0, 0, 0] });
-  // slow circles in the frontal plane: 4 keys per circle
-  const circle = (t, phase, big, low = 0) => {
-    const a = phase * TAU; const s = Math.sin(a), c = Math.cos(a);
-    const armL = [40 + 30 * c, -20 + 55 * s * big, -30], armR = [40 - 30 * c, -20 - 55 * s * big * 0.9, -30];
-    const P = pose({ hip: [A0[0], 0.9 - low, A0[1]], spine: [0, 8 * c, 4 * s], chest: [0, 6 * c, 0], armL, armR, elbowL: [30, -20], elbowR: [30, -20], handL: [-10, 0, 0], handR: [-10, 0, 0] }, aBase);
-    key(t, P, 'linear');
-  };
-  let tt = 47.4; let ph = 0;
-  while (tt < 52.0) { const big = remap(tt, 47.4, 51.5, 0.5, 1.1); circle(tt, ph, big, remap(tt, 47.4, 52, 0, 0.06)); ph += 0.25; tt += remap(tt, 47.4, 52, 0.55, 0.3); }
+  const CW = AIR_WALK;
+  {
+    const { c, R, t0, t1, steps } = CW;
+    const dth = TAU / steps, th0 = Math.PI;                 // start on the circle at A0, walk a full turn
+    const on = (th, r) => [c[0] + r * Math.cos(th), c[1] + r * Math.sin(th)];
+    let prev = 360;
+    const yawAt = (th) => { let y = Math.atan2(Math.sin(th), -Math.cos(th)) / DEG + 360; while (y - prev > 180) y -= 360; while (y - prev < -180) y += 360; return y; };
+    const upper = { spine: [2, 16, 0], chest: [0, 14, 0], neck: [0, 10, 0], head: [-3, 8, 0], face: [0.35, 0, 0.1, 0, 0],
+      armL: [46, 14, -45], elbowL: [30, -45], handL: [-42, 0, 0], armR: [100, -16, -35], elbowR: [88, -35], handR: [-30, 0, 0], shapeL: 'palm', shapeR: 'palm' };
+    const rIn = R - 0.13, rOut = R + 0.13;
+    let thL = th0, thR = th0;
+    const place = (P, th, liftL, liftR) => {
+      const y = yawAt(th); prev = y;
+      const h = on(th, R); P.hip = [h[0], 0.83, h[1]]; P.yaw = y;
+      const fl = on(thL, rIn), fr = on(thR, rOut);
+      P.footL = [fl[0], fl[1], liftL, yawAt(thL), 0]; prev = y;
+      P.footR = [fr[0], fr[1], liftR, yawAt(thR) + 16, 0]; prev = y;
+      P.kneeL = [0.3, 0, 1]; P.kneeR = [-0.3, 0, 1];
+    };
+    const dt = (t1 - t0) / steps;
+    // settle into the walking posture on the spot
+    const P0 = pose(upper); place(P0, th0, 0, 0); key(t0, P0, 'inOutSine');
+    for (let k = 1; k <= steps; k++) {
+      const left = k % 2 === 1;
+      const thHip0 = th0 - (k - 1) * dth, thHip1 = th0 - k * dth;
+      const target = k === steps ? thHip1 : thHip1 - dth / 2;
+      const from = left ? thL : thR;
+      // mid-step: the moving foot glides low past the standing one
+      if (left) thL = (from + target) / 2; else thR = (from + target) / 2;
+      const Pm = pose(upper); place(Pm, (thHip0 + thHip1) / 2, left ? 0.035 : 0, left ? 0 : 0.035); key(t0 + (k - 0.5) * dt, Pm, 'linear');
+      if (left) thL = target; else thR = target;
+      const Pk = pose(upper); place(Pk, thHip1, 0, 0); key(t0 + k * dt, Pk, k === steps ? 'inOutSine' : 'linear');
+    }
+    // closing half-step: bring the trailing foot level
+    thL = thR = th0 - steps * dth;
+    const Pc = pose(upper); place(Pc, thL, 0, 0); key(t1 + 0.12, Pc, 'inOutSine');
+  }
+  // palm change: toe-in and wrap the arms low, then turn out as one palm spirals overhead
+  key(51.8, pose({ stance: { o: A0, yaw: 720 + 35, L: [0.12, 0.02], R: [-0.06, 0.12], h: 0.8, toeR: -40, knee: 0.45 }, spine: [6, 20, 0], chest: [4, 12, 0],
+    armL: [84, -46, 30], elbowL: [70, 30], handL: [-10, 0, 0], armR: [88, -40, 30], elbowR: [66, 30], handR: [-10, 0, 0], shapeL: 'palm', shapeR: 'palm', face: [0.3, 0, 0.3, 0.1, 0] }), 'inOutSine');
+  key(52.15, pose({ stance: { o: A0, yaw: 720 + 75, L: [0.1, 0], R: [-0.12, 0.04], h: 0.9, heelL: 0.35, liftR: 0.06 }, spine: [-4, -10, 0], chest: [-6, -8, 0], head: [-10, 0, 0],
+    armL: [20, -58, 0], elbowL: [25, 0], handL: [-20, 0, 0], armR: [14, 76, -20], elbowR: [26, -20], handR: [-20, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'inOutSine');
   // spin: pirouette on the left foot, arms extended then drawn in, rising
-  key(52.4, arms(pose({ stance: { o: A0, yaw: aY + 90, L: [0.08, 0], R: [-0.12, 0.05], h: 0.92, liftR: 0.15, heelL: 0.5 }, shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'wide'), 'inQuad');
-  key(53.0, arms(pose({ stance: { o: A0, yaw: aY + 360, L: [0.06, 0], R: [-0.06, 0.04], h: 1.1, liftL: 0.15, liftR: 0.22, pitchL: 35, pitchR: 35 }, lift: 0.5, shapeL: 'open', shapeR: 'open', face: [0.6, 0, 0, 0, 0] }), 'wide'), 'linear');
-  key(53.6, arms(pose({ stance: { o: A0, yaw: aY + 720, L: [0.06, 0], R: [-0.06, 0.04], h: 1.6, liftL: 0.66, liftR: 0.72, pitchL: 45, pitchR: 45 }, lift: 1, shapeL: 'relax', shapeR: 'relax', face: [0.7, 0, 0, 0, 0] }),
+  const aS = 810;
+  key(52.4, arms(pose({ stance: { o: A0, yaw: aS, L: [0.08, 0], R: [-0.12, 0.05], h: 0.92, liftR: 0.15, heelL: 0.5 }, shapeL: 'open', shapeR: 'open', face: [0.4, 0, 0.2, 0, 0] }), 'wide'), 'inQuad');
+  key(53.0, arms(pose({ stance: { o: A0, yaw: aS + 270, L: [0.06, 0], R: [-0.06, 0.04], h: 1.1, liftL: 0.15, liftR: 0.22, pitchL: 35, pitchR: 35 }, lift: 0.5, shapeL: 'open', shapeR: 'open', face: [0.6, 0, 0, 0, 0] }), 'wide'), 'linear');
+  key(53.6, arms(pose({ stance: { o: A0, yaw: aS + 630, L: [0.06, 0], R: [-0.06, 0.04], h: 1.6, liftL: 0.66, liftR: 0.72, pitchL: 45, pitchR: 45 }, lift: 1, shapeL: 'relax', shapeR: 'relax', face: [0.7, 0, 0, 0, 0] }),
     { arm: [30, -40, 0], elbow: [70, 0], hand: [0, 0, 0] }), 'linear');
-  key(55.2, arms(pose({ stance: { o: A0, yaw: aY + 900, L: [0.08, 0.02], R: [-0.08, -0.06], h: 2.6, liftL: 1.75, liftR: 1.66, pitchL: 50, pitchR: 45 }, lift: 1, kneeR: [-0.2, 0.3, 1], shapeL: 'open', shapeR: 'open', face: [0.8, 0, 0, 0, 0] }), 'wide'), 'outSine');
-  key(57.8, arms(pose({ stance: { o: A0, yaw: aY + 990, L: [0.08, 0.02], R: [-0.08, -0.08], h: 2.95, liftL: 2.1, liftR: 1.96, pitchL: 50, pitchR: 40 }, lift: 1, head: [-8, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.9, 0, 0, 0, 0] }),
+  key(55.2, arms(pose({ stance: { o: A0, yaw: aS + 810, L: [0.08, 0.02], R: [-0.08, -0.06], h: 2.6, liftL: 1.75, liftR: 1.66, pitchL: 50, pitchR: 45 }, lift: 1, kneeR: [-0.2, 0.3, 1], shapeL: 'open', shapeR: 'open', face: [0.8, 0, 0, 0, 0] }), 'wide'), 'outSine');
+  key(57.8, arms(pose({ stance: { o: A0, yaw: aS + 900, L: [0.08, 0.02], R: [-0.08, -0.08], h: 2.95, liftL: 2.1, liftR: 1.96, pitchL: 50, pitchR: 40 }, lift: 1, head: [-8, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.9, 0, 0, 0, 0] }),
     { arm: [10, -5, -60], elbow: [20, -50], hand: [-10, 0, 0] }), 'inOutSine');
 
   // ---------------------------------------------------------------- ACT VI · UNITY (58–70)
-  const uY = aY + 1080; // face the default camera side (+Z) again
+  const uY = aS + 990; // 1800° ≡ 0: face the default camera side (+Z) again, and loop seamlessly
   const hover = (h, over = {}, st = {}) => pose(Object.assign({ stance: Object.assign({ o: A0, yaw: uY, L: [0.09, 0.03], R: [-0.08, -0.1], h, liftL: h - 0.84, liftR: h - 0.94, pitchL: 50, pitchR: 38 }, st), lift: 1, kneeR: [-0.2, 0.4, 1] }, over));
   key(60.0, arms(hover(3.0, { chest: [-8, 0, 0], head: [-12, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.5, 0, 0, 0, 0] }), { arm: [10, 18, -70], elbow: [14, -70], hand: [-15, 0, 0] }), 'inOutSine');
   key(62.6, arms(hover(3.05, { chest: [-4, 0, 0], head: [-6, 0, 0], shapeL: 'open', shapeR: 'open', face: [0.2, 0, 0.3, 0.2, 0] }), { arm: [35, 5, -60], elbow: [30, -60], hand: [-15, 0, 0] }), 'inOutSine');
@@ -5801,11 +6255,15 @@ function buildChoreography() {
   // descend and land softly
   key(67.7, arms(hover(1.05, { lift: 0.4, face: [0.5, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }, { liftL: 0.08, liftR: 0.05, pitchL: 20, pitchR: 20 }), 'relaxFront'), 'inOutSine');
   key(68.05, arms(pose({ stance: { o: A0, yaw: uY, L: [0.14, 0.04], R: [-0.14, -0.06], h: 0.84, knee: 0.3 }, face: [0.6, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'relaxFront'), 'outQuad');
-  key(68.5, arms(pose({ stance: { o: A0, yaw: uY, L: [0.13, 0.04], R: [-0.14, -0.06], h: 0.93 }, face: [0.7, 0, 0, 0, 0], shapeL: 'relax', shapeR: 'relax' }), 'down'), 'inOutSine');
+  // closing of the 24-step form: cross hands at the chest, then separate and press down as the breath leaves
+  key(68.38, arms(pose({ stance: { o: A0, yaw: uY, L: [0.15, 0.04], R: [-0.15, -0.06], h: 0.9 }, face: [0.6, 0, 0, 0, 0], shapeL: 'open', shapeR: 'open' }),
+    { arm: [98, -22, 20], elbow: [74, 20], hand: [-8, 0, 0] }), 'inOutSine');
+  key(68.78, arms(pose({ stance: { o: A0, yaw: uY, L: [0.14, 0.04], R: [-0.14, -0.06], h: 0.9, knee: 0.3 }, face: [0.75, 0, 0, 0, 0], shapeL: 'palm', shapeR: 'palm' }),
+    { arm: [55, -52, 0], elbow: [40, 0], hand: [-58, 0, 0] }), 'inOutSine');
   // return to the kneel
-  key(69.1, pose({ hip: [0.0, 0.62, 0.0], pelvis: [16, 0], spine: [12, 0, 0], yaw: uY, footR: [-0.14, 0.3, 0, uY - 6, 0], footL: [0.13, -0.3, 0, uY + 4, 108], kneeL: [0.12, -1.2, 1], face: [0.9, 0, 0, 0, 0] }, arms(pose({}, kneel), 'relaxFront')), 'inOutSine');
+  key(69.2, pose({ hip: [0.0, 0.62, 0.0], pelvis: [16, 0], spine: [12, 0, 0], yaw: uY, footR: [-0.14, 0.3, 0, uY - 6, 0], footL: [0.13, -0.3, 0, uY + 4, 108], kneeL: [0.12, -1.2, 1], face: [0.9, 0, 0, 0, 0] }, arms(pose({}, kneel), 'relaxFront')), 'inOutSine');
   const kneelEnd = pose({ yaw: uY }, kneel);
-  key(69.75, kneelEnd, 'inOutSine');
+  key(69.8, kneelEnd, 'inOutSine');
   key(70.0, kneelEnd, 'linear');
   CHOREO.keys.sort((a, b) => a.t - b.t);
 }
@@ -5986,7 +6444,7 @@ function buildShots() {
   });
   shot(22.36, 25.28, 'slabs rise', (u) => {
     const c = figC();
-    return { p: vlerp(V3(c.x - 3.4, 0.35, c.z - 2.6), V3(c.x - 3.0, 0.5, c.z - 2.2), u), t: V3(c.x, 1.1 + 0.2 * u, c.z - 1.2), fov: 40, aperture: 0.03, shake: 1.5 };
+    return { p: vlerp(V3(c.x - 3.7, 0.4, c.z - 0.2), V3(c.x - 3.3, 0.55, c.z - 0.8), ease(u)), t: V3(c.x + 0.1, 1.05 + 0.15 * u, c.z - 0.55), fov: 40, aperture: 0.03, shake: 1.5 };
   });
   shot(25.28, 27.3, 'combo behind', (u) => {
     const c = figC();
@@ -6009,8 +6467,8 @@ function buildShots() {
   });
   shot(35.1, 36.12, 'face lit from below', (u) => {
     const c = figC();
-    const p = A.head.clone().add(V3(Math.sin((fy + 25) * DEG) * 0.75, -0.14, Math.cos((fy + 25) * DEG) * 0.75));
-    return { p, t: A.head.clone().add(V3(0, -0.12, 0)), fov: 30, aperture: 0.14, focusOn: A.head };
+    const p = A.head.clone().add(V3(Math.sin((fy + 58) * DEG) * 0.95, -0.1, Math.cos((fy + 58) * DEG) * 0.95));
+    return { p, t: A.head.clone().add(V3(0, -0.1, 0)), fov: 30, aperture: 0.1, focusOn: A.head };
   });
   const jabAngles = [fy + 35, fy - 60, fy + 150, fy - 20, fy + 80];
   [36.12, 36.47, 36.82, 37.17, 37.52].forEach((t, i) => {
@@ -6023,7 +6481,7 @@ function buildShots() {
   shot(38.1, 40.2, 'kicks + whip pan', (u, lt) => {
     const c = figC();
     const pan = smoothstep(1.2, 1.55, lt);
-    const p = around(c, fy - 95, 4.2, 1.2);
+    const p = around(c, fy - 60, 4.2, 1.2);
     const t0 = V3(c.x, 1.3 + 0.6 * smoothstep(0.3, 0.55, lt), c.z);
     const t1 = around(c, fy + 250 + 40, 2.5, 1.1);
     return { p, t: t0.lerp(t1, pan * (1 - smoothstep(1.7, 2.1, lt))), fov: 40, aperture: 0.02, shake: 1.2 };
@@ -6123,16 +6581,16 @@ function updateCamera(T, realDt) {
 const A_head = () => CAM.anchors.head || V3(0, 1.6, 0);
 
 // ---- global tracks: sky, clouds, wind, grade, fades -------------------------------------------
-const SUN_KEYS = [[0, 3.4], [7, 3.0], [20, 1.9], [33, 0.1], [36, -1.4], [47, -3.6], [58, -5.8], [65, -8.0], [70, -9.5]];
+const SUN_KEYS = [[0, 3.4], [7, 3.0], [20, 1.9], [30, 0.7], [33, -0.3], [35.5, -2.0], [47, -3.8], [58, -5.8], [65, -8.0], [70, -9.5]];
 function keysAt(keys, T) { if (T <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) if (T <= keys[i][0]) { const a = keys[i - 1], b = keys[i]; return lerp(a[1], b[1], smooth01((T - a[0]) / (b[0] - a[0]))); } return keys[keys.length - 1][1]; }
 const GRADES = {
-  //          exposure temp tint sat contrast bloom thresh vignette grain streak
-  breath:  [1.0, 0.05, 0.0, 0.92, 1.06, 0.45, 2.2, 0.42, 0.05, 0.2],
-  water:   [1.05, -0.12, -0.02, 0.95, 1.07, 0.5, 2.0, 0.38, 0.05, 0.25],
-  earth:   [1.0, 0.18, 0.03, 0.82, 1.1, 0.4, 2.4, 0.4, 0.06, 0.15],
-  fire:    [1.25, 0.25, 0.02, 1.05, 1.12, 0.85, 1.6, 0.46, 0.06, 0.35],
-  air:     [1.35, -0.12, 0.0, 0.8, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25],
-  unity:   [1.45, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.5],
+  //          exposure temp tint sat contrast bloom thresh vignette grain streak auto-exposure
+  breath:  [1.0, 0.05, 0.0, 0.92, 1.06, 0.45, 2.2, 0.42, 0.05, 0.2, 1.0],
+  water:   [1.0, -0.12, -0.02, 0.95, 1.07, 0.5, 2.0, 0.38, 0.05, 0.25, 1.0],
+  earth:   [1.0, 0.18, 0.03, 0.82, 1.1, 0.4, 2.4, 0.4, 0.06, 0.15, 1.0],
+  fire:    [0.85, 0.2, 0.02, 1.05, 1.12, 0.8, 1.6, 0.46, 0.06, 0.35, 0.5],
+  air:     [0.95, -0.12, 0.0, 0.82, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25, 0.7],
+  unity:   [0.95, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.3, 0.72],
 };
 function applyTracks(T) {
   SKY.sunElev = keysAt(SUN_KEYS, T) * DEG;
@@ -6153,7 +6611,7 @@ function applyTracks(T) {
   const ga = GRADES[A.id], gb = GRADES[B.id];
   const mix = (i) => lerp(ga[i], gb[i], ai < ACTS.length - 1 ? k : 0);
   g.exposure = mix(0) * FX_STATE.exposureMul; g.temp = mix(1) + FX_STATE.warm * 0.5; g.tint = mix(2); g.saturation = mix(3); g.contrast = mix(4);
-  g.bloom = mix(5) * FX_STATE.bloomMul; g.bloomThreshold = mix(6); g.vignette = mix(7); g.grain = mix(8); g.streak = mix(9);
+  g.bloom = mix(5) * FX_STATE.bloomMul; g.bloomThreshold = mix(6); g.vignette = mix(7); g.grain = mix(8); g.streak = mix(9); g.autoExposure = mix(10);
   g.fade = Math.max(1 - smoothstep(1.0, 3.2, T), smoothstep(68.7, 69.95, T));
   g.shutter = REDUCED_MOTION ? 0.25 : 0.5;
   // letterbox (anatomorphic 2.39:1 in landscape; a slim frame in portrait)
@@ -6291,6 +6749,9 @@ function seekTo(T, preroll = 2.2) {
   // let the cloth settle into the current pose
   for (let i = 0; i < 24; i++) { CHAR.canon.solve(CHAR.pose, 1 / 60); CHAR.fig.apply(CHAR.canon, 1 / 60, { breath: 0.9 }); updateCloth(1 / 60, simTime + i / 60); }
   CAM.first = true; CAM.shotIndex = -1;
+  // the sky normally refreshes every few frames; a jump in time must refresh it now
+  applyTracks(TL.T); updateSkyState(); renderSkyTexture(true); updateEnvironment(true);
+  if (typeof EXPO !== 'undefined') EXPO.first = true;
 }
 
 let lastNow = performance.now();
@@ -6314,7 +6775,7 @@ function debugCameraOverride() {
   const f = URLQ.get('follow'), c = URLQ.get('cam');
   if (URLQ.has('nofade')) POST.grade.fade = 0;
   if (c) { const v = c.split(',').map(Number); camera.position.set(v[0], v[1], v[2]); camera.lookAt(v[3], v[4], v[5]); if (v[6]) camera.fov = v[6]; }
-  else if (f) { const v = f.split(',').map(Number); const h = CAM.anchors.hips || V3(0, 1, 0); camera.position.set(h.x + Math.sin(v[0] * DEG) * v[1], v[2], h.z + Math.cos(v[0] * DEG) * v[1]); camera.lookAt(h.x, h.y * 0.85, h.z); camera.fov = v[3] || 34; }
+  else if (f) { const v = f.split(',').map(Number); const h = CAM.anchors.hips || V3(0, 1, 0); camera.position.set(h.x + Math.sin(v[0] * DEG) * v[1], v[2], h.z + Math.cos(v[0] * DEG) * v[1]); camera.lookAt(h.x, v[4] != null && !isNaN(v[4]) ? v[4] : h.y * 0.85, h.z); camera.fov = v[3] || 34; }
   else return;
   camera.updateProjectionMatrix(); camera.updateMatrixWorld(); POST.grade.aperture = 0; POST.cut = true;
 }

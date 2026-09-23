@@ -56,8 +56,8 @@ function bakeGranite(size) {
   vec3 srgb(vec3 c){ return pow(c, vec3(2.2)); }
   // height & material of the stone at uv (tile coords)
   float graniteHeight(vec2 uv, out vec3 alb, out float rough){
-    vec3 g1 = pvor(uv, 190.0, 0.9);   // feldspar-scale crystals ~13mm
-    vec3 g2 = pvor(uv + 0.31, 420.0, 0.95); // fine grains ~6mm
+    vec3 g1 = pvor(uv, 290.0, 0.9);   // feldspar-scale crystals ~9mm
+    vec3 g2 = pvor(uv + 0.31, 640.0, 0.95); // fine grains ~4mm
     vec3 cr = pvor(uv + 0.77, 7.0, 0.85);   // hairline crack network ~35cm cells
     vec3 cr2 = pvor(uv + 0.13, 3.0, 0.8);   // larger fractures
     float macro = pfbm(uv, 4.0, 5, 0.55);
@@ -68,16 +68,17 @@ function bakeGranite(size) {
     vec3 feld = mix(srgb(vec3(0.70, 0.64, 0.58)), srgb(vec3(0.78, 0.72, 0.64)), sp_hash11(id * 7.1));
     vec3 quartz = srgb(vec3(0.56, 0.57, 0.58));
     vec3 plag = srgb(vec3(0.83, 0.81, 0.77));
-    vec3 biot = srgb(vec3(0.13, 0.12, 0.115));
+    vec3 biot = srgb(vec3(0.21, 0.2, 0.19));
     vec3 c; float r;
     if (id < 0.42){ c = feld; r = 0.84; }
     else if (id < 0.66){ c = quartz; r = 0.55; }
-    else if (id < 0.88){ c = plag; r = 0.8; }
+    else if (id < 0.9){ c = plag; r = 0.8; }
     else { c = biot; r = 0.62; }
     // fine grains overlay: biotite specks and quartz glints
-    if (id2 > 0.9) { c = mix(c, biot, 0.85); r = 0.6; }
+    if (id2 > 0.93) { c = mix(c, biot, 0.7); r = 0.6; }
     else if (id2 < 0.12) { c = mix(c, quartz, 0.6); r = min(r, 0.6); }
     c *= 0.9 + 0.2 * sp_hash11(id2 * 13.7);
+    c = mix(c, srgb(vec3(0.6, 0.585, 0.56)), 0.3);   // weathered surface: crystals read as texture, not as confetti
     // weathering: grime in low areas, iron staining, lichen patches
     float grime = smoothstep(0.35, 0.75, pfbm(uv + 3.1, 6.0, 5, 0.6));
     c = mix(c, c * srgb(vec3(0.62, 0.58, 0.53)), grime * 0.75);

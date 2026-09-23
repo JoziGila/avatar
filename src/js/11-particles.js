@@ -116,7 +116,8 @@ class GPUParticles {
     if (e.count > 0 && n < 1 && Math.random() < e.count * Q.particles) n = 1;
     if (n <= 0) return;
     n = Math.min(n, Math.floor(this.cap / 4));
-    this.queue.push(Object.assign({}, e, { n }));
+    // snapshot vectors now: callers pass shared scratch vectors that change before pack()
+    this.queue.push(Object.assign({}, e, { n, pos: e.pos.clone(), pos2: e.pos2 ? e.pos2.clone() : null, vel: e.vel ? e.vel.clone() : null, normal: e.normal ? e.normal.clone() : null }));
   }
   pack() {
     const D = this.emitData; let k = 0;

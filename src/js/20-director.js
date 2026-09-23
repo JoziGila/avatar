@@ -87,7 +87,7 @@ function buildShots() {
   });
   shot(22.36, 25.28, 'slabs rise', (u) => {
     const c = figC();
-    return { p: vlerp(V3(c.x - 3.4, 0.35, c.z - 2.6), V3(c.x - 3.0, 0.5, c.z - 2.2), u), t: V3(c.x, 1.1 + 0.2 * u, c.z - 1.2), fov: 40, aperture: 0.03, shake: 1.5 };
+    return { p: vlerp(V3(c.x - 3.7, 0.4, c.z - 0.2), V3(c.x - 3.3, 0.55, c.z - 0.8), ease(u)), t: V3(c.x + 0.1, 1.05 + 0.15 * u, c.z - 0.55), fov: 40, aperture: 0.03, shake: 1.5 };
   });
   shot(25.28, 27.3, 'combo behind', (u) => {
     const c = figC();
@@ -110,8 +110,8 @@ function buildShots() {
   });
   shot(35.1, 36.12, 'face lit from below', (u) => {
     const c = figC();
-    const p = A.head.clone().add(V3(Math.sin((fy + 25) * DEG) * 0.75, -0.14, Math.cos((fy + 25) * DEG) * 0.75));
-    return { p, t: A.head.clone().add(V3(0, -0.12, 0)), fov: 30, aperture: 0.14, focusOn: A.head };
+    const p = A.head.clone().add(V3(Math.sin((fy + 58) * DEG) * 0.95, -0.1, Math.cos((fy + 58) * DEG) * 0.95));
+    return { p, t: A.head.clone().add(V3(0, -0.1, 0)), fov: 30, aperture: 0.1, focusOn: A.head };
   });
   const jabAngles = [fy + 35, fy - 60, fy + 150, fy - 20, fy + 80];
   [36.12, 36.47, 36.82, 37.17, 37.52].forEach((t, i) => {
@@ -124,7 +124,7 @@ function buildShots() {
   shot(38.1, 40.2, 'kicks + whip pan', (u, lt) => {
     const c = figC();
     const pan = smoothstep(1.2, 1.55, lt);
-    const p = around(c, fy - 95, 4.2, 1.2);
+    const p = around(c, fy - 60, 4.2, 1.2);
     const t0 = V3(c.x, 1.3 + 0.6 * smoothstep(0.3, 0.55, lt), c.z);
     const t1 = around(c, fy + 250 + 40, 2.5, 1.1);
     return { p, t: t0.lerp(t1, pan * (1 - smoothstep(1.7, 2.1, lt))), fov: 40, aperture: 0.02, shake: 1.2 };
@@ -224,16 +224,16 @@ function updateCamera(T, realDt) {
 const A_head = () => CAM.anchors.head || V3(0, 1.6, 0);
 
 // ---- global tracks: sky, clouds, wind, grade, fades -------------------------------------------
-const SUN_KEYS = [[0, 3.4], [7, 3.0], [20, 1.9], [33, 0.1], [36, -1.4], [47, -3.6], [58, -5.8], [65, -8.0], [70, -9.5]];
+const SUN_KEYS = [[0, 3.4], [7, 3.0], [20, 1.9], [30, 0.7], [33, -0.3], [35.5, -2.0], [47, -3.8], [58, -5.8], [65, -8.0], [70, -9.5]];
 function keysAt(keys, T) { if (T <= keys[0][0]) return keys[0][1]; for (let i = 1; i < keys.length; i++) if (T <= keys[i][0]) { const a = keys[i - 1], b = keys[i]; return lerp(a[1], b[1], smooth01((T - a[0]) / (b[0] - a[0]))); } return keys[keys.length - 1][1]; }
 const GRADES = {
-  //          exposure temp tint sat contrast bloom thresh vignette grain streak
-  breath:  [1.0, 0.05, 0.0, 0.92, 1.06, 0.45, 2.2, 0.42, 0.05, 0.2],
-  water:   [1.05, -0.12, -0.02, 0.95, 1.07, 0.5, 2.0, 0.38, 0.05, 0.25],
-  earth:   [1.0, 0.18, 0.03, 0.82, 1.1, 0.4, 2.4, 0.4, 0.06, 0.15],
-  fire:    [1.25, 0.25, 0.02, 1.05, 1.12, 0.85, 1.6, 0.46, 0.06, 0.35],
-  air:     [1.35, -0.12, 0.0, 0.8, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25],
-  unity:   [1.45, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.5],
+  //          exposure temp tint sat contrast bloom thresh vignette grain streak auto-exposure
+  breath:  [1.0, 0.05, 0.0, 0.92, 1.06, 0.45, 2.2, 0.42, 0.05, 0.2, 1.0],
+  water:   [1.0, -0.12, -0.02, 0.95, 1.07, 0.5, 2.0, 0.38, 0.05, 0.25, 1.0],
+  earth:   [1.0, 0.18, 0.03, 0.82, 1.1, 0.4, 2.4, 0.4, 0.06, 0.15, 1.0],
+  fire:    [0.85, 0.2, 0.02, 1.05, 1.12, 0.8, 1.6, 0.46, 0.06, 0.35, 0.5],
+  air:     [0.95, -0.12, 0.0, 0.82, 1.05, 0.5, 2.0, 0.4, 0.05, 0.25, 0.7],
+  unity:   [0.95, -0.18, 0.02, 0.88, 1.1, 0.7, 1.7, 0.44, 0.05, 0.3, 0.72],
 };
 function applyTracks(T) {
   SKY.sunElev = keysAt(SUN_KEYS, T) * DEG;
@@ -254,7 +254,7 @@ function applyTracks(T) {
   const ga = GRADES[A.id], gb = GRADES[B.id];
   const mix = (i) => lerp(ga[i], gb[i], ai < ACTS.length - 1 ? k : 0);
   g.exposure = mix(0) * FX_STATE.exposureMul; g.temp = mix(1) + FX_STATE.warm * 0.5; g.tint = mix(2); g.saturation = mix(3); g.contrast = mix(4);
-  g.bloom = mix(5) * FX_STATE.bloomMul; g.bloomThreshold = mix(6); g.vignette = mix(7); g.grain = mix(8); g.streak = mix(9);
+  g.bloom = mix(5) * FX_STATE.bloomMul; g.bloomThreshold = mix(6); g.vignette = mix(7); g.grain = mix(8); g.streak = mix(9); g.autoExposure = mix(10);
   g.fade = Math.max(1 - smoothstep(1.0, 3.2, T), smoothstep(68.7, 69.95, T));
   g.shutter = REDUCED_MOTION ? 0.25 : 0.5;
   // letterbox (anatomorphic 2.39:1 in landscape; a slim frame in portrait)
